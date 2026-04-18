@@ -8,11 +8,20 @@ const resetBtn = document.getElementById("resetBtn");
 const stepBtn = document.getElementById("stepBtn");
 const simStateLabel = document.getElementById("simStateLabel");
 const gravityInput = document.getElementById("gravityInput");
+const sizeInput = document.getElementById("sizeInput");
+const randomSpawnToggle = document.getElementById("randomSpawnToggle");
+const randomSpawnPreview = document.getElementById("randomSpawnPreview");
 const fpsValue = document.getElementById("fpsValue");
 const objectCountValue = document.getElementById("objectCountValue");
 const gravityValue = document.getElementById("gravityValue");
 const selectedObjectValue = document.getElementById("selectedObjectValue");
 const toastArea = document.getElementById("toastArea");
+const shapeTypeInput = document.getElementById("shapeType");
+const massInput = document.getElementById("massInput");
+const createDensityInput = document.getElementById("createDensityInput");
+const createVolumeInput = document.getElementById("createVolumeInput");
+const createGravityInput = document.getElementById("createGravityInput");
+const addObjectBtn = document.getElementById("addObjectBtn");
 
 const SHAPE_TYPES = Object.freeze(["cube", "sphere"]);
 
@@ -196,6 +205,8 @@ const simulationStore = createSimulationStateStore({
   worldHeight: 0,
   objects: [],
   objectCount: 0,
+  randomSpawnEnabled: false,
+  pendingSpawnPosition: { x: 0, y: 0 },
   currentGravity: 9.8,
   selectedObject: "None",
   fps: 0,
@@ -203,6 +214,10 @@ const simulationStore = createSimulationStateStore({
 });
 
 const appState = simulationStore.getState();
+
+if (randomSpawnToggle) {
+  simulationStore.update({ randomSpawnEnabled: randomSpawnToggle.checked });
+}
 
 function showToast(message, variant = "info") {
   if (!toastArea) {
@@ -244,6 +259,217 @@ function updateStatusBar() {
   if (selectedObjectValue) {
     selectedObjectValue.textContent = appState.selectedObject;
   }
+}
+
+function parseOptionalNumber(inputElement) {
+  if (!inputElement) {
+    return null;
+  }
+  const rawValue = inputElement.value.trim();
+  if (rawValue === "") {
+    return null;
+  }
+  const parsedValue = Number.parseFloat(rawValue);
+  return Number.isFinite(parsedValue) ? parsedValue : Number.NaN;
+}
+
+function calculateSizeFromVolume(type, volume) {
+  if (type === "sphere") {
+    const radius = Math.cbrt((3 * volume) / (4 * Math.PI));
+    return radius * 2;
+  }
+  return Math.cbrt(volume);
+}
+
+function getRandomSpawnPositionForSize(size) {
+  const worldWidth = Math.max(1, appState.worldWidth || canvas?.clientWidth || 1);
+  const worldHeight = Math.max(1, appState.worldHeight || canvas?.clientHeight || 1);
+  const radius = Math.max(2, size / 2);
+
+  const minX = radius;
+  const maxX = Math.max(minX, worldWidth - radius);
+  const minY = radius;
+  const maxY = Math.max(minY, worldHeight - radius);
+
+  return {
+    x: minX + Math.random() * (maxX - minX),
+    y: minY + Math.random() * (maxY - minY),
+  };
+}
+
+function getCenterSpawnPosition() {
+  const worldWidth = Math.max(1, appState.worldWidth || canvas?.clientWidth || 1);
+  const worldHeight = Math.max(1, appState.worldHeight || canvas?.clientHeight || 1);
+  return {
+    x: worldWidth / 2,
+    y: worldHeight / 2,
+  };
+}
+
+function updateRandomSpawnPreview() {
+  if (!randomSpawnPreview) {
+    return;
+  }
+
+  if (!appState.randomSpawnEnabled) {
+    const center = getCenterSpawnPosition();
+    randomSpawnPreview.textContent = `Spawn preview: center (${center.x.toFixed(0)}, ${center.y.toFixed(0)})`;
+    return;
+  }
+
+  const sizeValue = parseOptionalNumber(sizeInput);
+  const effectiveSize = Number.isFinite(sizeValue) && sizeValue > 0 ? sizeValue : 20;
+  const previewPosition = getRandomSpawnPositionForSize(effectiveSize);
+  simulationStore.update({ pendingSpawnPosition: previewPosition });
+  randomSpawnPreview.textContent = `Spawn preview: random (${previewPosition.x.toFixed(0)}, ${previewPosition.y.toFixed(0)})`;
+}
+
+function handleRandomSpawnToggle(event) {
+  simulationStore.update({ randomSpawnEnabled: event.target.checked });
+  updateRandomSpawnPreview();
+}
+
+function validateCreateObjectForm() {
+  const parsedMass = parseOptionalNumber(massInput);
+  const parsedSize = parseOptionalNumber(sizeInput);
+  const density = parseOptionalNumber(createDensityInput);
+  const volume = parseOptionalNumber(createVolumeInput);
+  const gravity = parseOptionalNumber(createGravityInput);
+
+  const mass = parsedMass === null ? 10 : parsedMass;
+  const size = parsedSize === null ? 20 : parsedSize;
+
+  if (!Number.isFinite(mass) || mass <= 0) {
+    return { ok: false, message: "Mass must be a positive number." };
+  }
+  if (!Number.isFinite(size) || size <= 0) {
+    return { ok: false, message: "Size must be a positive number." };
+  }
+  if (density !== null && (!Number.isFinite(density) || density < 0)) {
+    return { ok: false, message: "Density cannot be negative." };
+  }
+  if (volume !== null && (!Number.isFinite(volume) || volume <= 0)) {
+    return { ok: false, message: "Volume must be greater than zero." };
+  }
+  if (gravity !== null && !Number.isFinite(gravity)) {
+    return { ok: false, message: "Gravity must be a valid number." };
+  }
+
+  return {
+    ok: true,
+    values: {
+      mass,
+      size,
+      density,
+      volume,
+      gravity: gravity ?? appState.currentGravity,
+    },
+  };
+}
+
+function drawSimulationObjects(ctx, objects) {
+  objects.forEach((object) => {
+    const radius = getObjectCollisionRadius(object);
+    ctx.fillStyle = object.color || "#0f766e";
+    ctx.strokeStyle = "#0b4f4a";
+    ctx.lineWidth = 1.25;
+
+    if (object.type === "sphere") {
+      ctx.beginPath();
+      ctx.arc(object.position.x, object.position.y, radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      return;
+    }
+
+    const side = radius * 2;
+    ctx.beginPath();
+    ctx.rect(object.position.x - radius, object.position.y - radius, side, side);
+    ctx.fill();
+    ctx.stroke();
+  });
+}
+
+function handleAddObject() {
+  const validation = validateCreateObjectForm();
+  if (!validation.ok) {
+    showToast(validation.message, "error");
+    return;
+  }
+
+  const selectedType = SHAPE_TYPES.includes(shapeTypeInput?.value) ? shapeTypeInput.value : "cube";
+
+  let effectiveSize = validation.values.size;
+  if (validation.values.volume !== null) {
+    effectiveSize = calculateSizeFromVolume(selectedType, validation.values.volume);
+  }
+
+  let effectiveMass = validation.values.mass;
+  if (validation.values.density !== null) {
+    const effectiveVolume = validation.values.volume ?? calculateVolume(selectedType, effectiveSize);
+    effectiveMass = validation.values.density * effectiveVolume;
+  }
+
+  if (!Number.isFinite(effectiveMass) || effectiveMass <= 0) {
+    showToast("Mass must be positive after applying density/volume values.", "error");
+    return;
+  }
+
+  const spawnPosition = appState.randomSpawnEnabled
+    ? getRandomSpawnPositionForSize(effectiveSize)
+    : getCenterSpawnPosition();
+
+  const newObject = createPhysicsObject({
+    type: selectedType,
+    mass: effectiveMass,
+    size: effectiveSize,
+    gravity: validation.values.gravity,
+    position: spawnPosition,
+    color: selectedType === "sphere" ? "#0f766e" : "#0b6b5d",
+  });
+
+  simulationStore.update({ objects: [...appState.objects, newObject] });
+  updateStatusBar();
+  initSimulationCanvas();
+  updateRandomSpawnPreview();
+  showToast("Object added to simulation.", "success");
+}
+
+function getRandomSpawnPosition() {
+  const worldWidth = Math.max(1, appState.worldWidth || canvas?.clientWidth || 1);
+  const worldHeight = Math.max(1, appState.worldHeight || canvas?.clientHeight || 1);
+  const sizeValue = Number.parseFloat(sizeInput?.value);
+  const radius = Math.max(8, Number.isFinite(sizeValue) ? sizeValue / 2 : 10);
+
+  const minX = radius;
+  const maxX = Math.max(minX, worldWidth - radius);
+  const minY = radius;
+  const maxY = Math.max(minY, worldHeight - radius);
+
+  return {
+    x: minX + Math.random() * (maxX - minX),
+    y: minY + Math.random() * (maxY - minY),
+  };
+}
+
+function updateRandomSpawnPreview() {
+  if (!randomSpawnPreview) {
+    return;
+  }
+
+  if (!appState.randomSpawnEnabled) {
+    randomSpawnPreview.textContent = "Spawn preview: center";
+    return;
+  }
+
+  const spawn = getRandomSpawnPosition();
+  simulationStore.update({ pendingSpawnPosition: spawn });
+  randomSpawnPreview.textContent = `Spawn preview: (${spawn.x.toFixed(0)}, ${spawn.y.toFixed(0)})`;
+}
+
+function handleRandomSpawnToggle(event) {
+  simulationStore.update({ randomSpawnEnabled: event.target.checked });
+  updateRandomSpawnPreview();
 }
 
 function startFpsTracker() {
@@ -594,6 +820,8 @@ function drawCanvasPlaceholder(ctx, width, height) {
   ctx.fillStyle = "#52606d";
   ctx.font = "600 16px Segoe UI, Tahoma, Geneva, Verdana, sans-serif";
   ctx.fillText("Simulation Canvas Ready", 20, 32);
+
+  drawSimulationObjects(ctx, appState.objects);
 }
 
 function initSimulationCanvas() {
@@ -619,6 +847,8 @@ function initSimulationCanvas() {
   if (canvasSizeLabel) {
     canvasSizeLabel.textContent = `${resized.cssWidth} x ${resized.cssHeight} px`;
   }
+
+  updateRandomSpawnPreview();
 }
 
 if (startBtn) {
@@ -636,6 +866,15 @@ if (stepBtn) {
 if (gravityInput) {
   gravityInput.addEventListener("input", handleGravityInputChange);
 }
+if (randomSpawnToggle) {
+  randomSpawnToggle.addEventListener("change", handleRandomSpawnToggle);
+}
+if (sizeInput) {
+  sizeInput.addEventListener("input", updateRandomSpawnPreview);
+}
+if (addObjectBtn) {
+  addObjectBtn.addEventListener("click", handleAddObject);
+}
 
 window.addEventListener("resize", initSimulationCanvas);
 window.addEventListener("load", initSimulationCanvas);
@@ -643,6 +882,7 @@ window.addEventListener("load", initSimulationCanvas);
 updateToolbarButtons();
 updateToolbarStateLabel();
 updateStatusBar();
+updateRandomSpawnPreview();
 startFpsTracker();
 showToast("Validation messages will appear here.", "info");
 
