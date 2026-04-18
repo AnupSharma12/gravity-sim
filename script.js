@@ -2,11 +2,63 @@
 
 const canvas = document.getElementById("simCanvas");
 const canvasSizeLabel = document.getElementById("canvasSizeLabel");
+const startBtn = document.getElementById("startBtn");
+const pauseBtn = document.getElementById("pauseBtn");
+const resetBtn = document.getElementById("resetBtn");
+const stepBtn = document.getElementById("stepBtn");
+const simStateLabel = document.getElementById("simStateLabel");
 
 const appState = {
   initializedAt: new Date().toISOString(),
   canvasReady: Boolean(canvas),
+  isRunning: false,
+  stepCount: 0,
 };
+
+function updateToolbarStateLabel() {
+  if (!simStateLabel) {
+    return;
+  }
+
+  const stateText = appState.isRunning ? "Running" : "Paused";
+  simStateLabel.textContent = `State: ${stateText} | Steps: ${appState.stepCount}`;
+}
+
+function updateToolbarButtons() {
+  if (startBtn) {
+    startBtn.classList.toggle("is-active", appState.isRunning);
+    startBtn.disabled = appState.isRunning;
+  }
+  if (pauseBtn) {
+    pauseBtn.disabled = !appState.isRunning;
+  }
+}
+
+function handleStart() {
+  appState.isRunning = true;
+  updateToolbarButtons();
+  updateToolbarStateLabel();
+}
+
+function handlePause() {
+  appState.isRunning = false;
+  updateToolbarButtons();
+  updateToolbarStateLabel();
+}
+
+function handleReset() {
+  appState.isRunning = false;
+  appState.stepCount = 0;
+  initSimulationCanvas();
+  updateToolbarButtons();
+  updateToolbarStateLabel();
+}
+
+function handleStep() {
+  appState.stepCount += 1;
+  initSimulationCanvas();
+  updateToolbarStateLabel();
+}
 
 function resizeCanvasToContainer(targetCanvas) {
   const ratio = window.devicePixelRatio || 1;
@@ -70,7 +122,23 @@ function initSimulationCanvas() {
   }
 }
 
+if (startBtn) {
+  startBtn.addEventListener("click", handleStart);
+}
+if (pauseBtn) {
+  pauseBtn.addEventListener("click", handlePause);
+}
+if (resetBtn) {
+  resetBtn.addEventListener("click", handleReset);
+}
+if (stepBtn) {
+  stepBtn.addEventListener("click", handleStep);
+}
+
 window.addEventListener("resize", initSimulationCanvas);
 window.addEventListener("load", initSimulationCanvas);
+
+updateToolbarButtons();
+updateToolbarStateLabel();
 
 console.log("Gravity Simulator scaffold ready", appState);

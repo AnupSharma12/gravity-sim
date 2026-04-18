@@ -74,6 +74,46 @@ body {
   max-width: 70ch;
 }
 
+.sim-toolbar {
+  margin-top: var(--space-4);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  min-height: var(--toolbar-height);
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: #f8fafc;
+}
+
+.sim-toolbar__btn {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  padding: 0.45rem 0.8rem;
+  font: inherit;
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+}
+
+.sim-toolbar__btn:hover {
+  border-color: var(--primary);
+}
+
+.sim-toolbar__btn.is-active {
+  background: var(--primary);
+  color: var(--primary-contrast);
+  border-color: var(--primary);
+}
+
+.sim-toolbar__state {
+  margin-left: auto;
+  font-size: var(--font-size-100);
+  color: var(--muted-text);
+}
+
 .workspace {
   margin-top: var(--space-4);
   display: grid;
@@ -197,5 +237,10 @@ body {
   .sim-stage__canvas {
     height: 56vh;
     min-height: 260px;
+  }
+
+  .sim-toolbar__state {
+    width: 100%;
+    margin-left: 0;
   }
 }

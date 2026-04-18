@@ -20,6 +20,14 @@
       <h1>Gravity Simulator</h1>
       <p>Project structure initialized. Build simulation UI and logic here.</p>
 
+      <section class="sim-toolbar" aria-label="Simulation Actions">
+        <button id="startBtn" class="sim-toolbar__btn" type="button">Start</button>
+        <button id="pauseBtn" class="sim-toolbar__btn" type="button">Pause</button>
+        <button id="resetBtn" class="sim-toolbar__btn" type="button">Reset</button>
+        <button id="stepBtn" class="sim-toolbar__btn" type="button">Step</button>
+        <span id="simStateLabel" class="sim-toolbar__state">State: Idle</span>
+      </section>
+
       <section class="workspace" aria-label="Simulator Workspace">
         <section class="sim-stage" aria-label="Simulation Canvas Area">
           <div class="sim-stage__header">
