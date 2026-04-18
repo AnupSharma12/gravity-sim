@@ -16,6 +16,21 @@ const toastArea = document.getElementById("toastArea");
 
 const SHAPE_TYPES = Object.freeze(["cube", "sphere"]);
 
+const OBJECT_SOURCE_OF_TRUTH_FIELDS = Object.freeze([
+  "id",
+  "type",
+  "position",
+  "velocity",
+  "acceleration",
+  "gravity",
+  "mass",
+  "size",
+  "color",
+  "locked",
+]);
+
+const OBJECT_DERIVED_FIELDS = Object.freeze(["weight", "density", "volume"]);
+
 /**
  * @typedef {Object} PhysicsObject
  * @property {string} id
@@ -59,6 +74,49 @@ function calculateDensity(mass, volume) {
   return mass / volume;
 }
 
+function calculateGravityForce(mass, gravity) {
+  return mass * gravity;
+}
+
+function recalculateDependentValues(object) {
+  const volume = calculateVolume(object.type, object.size);
+  const weight = calculateWeight(object.mass, object.gravity);
+  const density = calculateDensity(object.mass, volume);
+
+  return {
+    ...object,
+    volume,
+    weight,
+    density,
+  };
+}
+
+/**
+ * Applies only source-of-truth fields and recomputes all derived fields.
+ * Direct writes to derived fields are intentionally ignored to avoid circular updates.
+ * @param {PhysicsObject} object
+ * @param {Partial<PhysicsObject>} patch
+ * @returns {PhysicsObject}
+ */
+function applyObjectSourcePatch(object, patch) {
+  const nextObject = { ...object };
+
+  const sanitizedPatch = { ...patch };
+  OBJECT_DERIVED_FIELDS.forEach((field) => {
+    if (Object.prototype.hasOwnProperty.call(sanitizedPatch, field)) {
+      delete sanitizedPatch[field];
+    }
+  });
+
+  OBJECT_SOURCE_OF_TRUTH_FIELDS.forEach((field) => {
+    if (Object.prototype.hasOwnProperty.call(sanitizedPatch, field)) {
+      nextObject[field] = sanitizedPatch[field];
+    }
+  });
+
+  return recalculateDependentValues(nextObject);
+}
+
 /**
  * Creates a normalized physics object with required simulation fields.
  * @param {Partial<PhysicsObject>} overrides
@@ -73,7 +131,7 @@ function createPhysicsObject(overrides = {}) {
   const density = Number.isFinite(overrides.density) ? Math.max(0, overrides.density) : calculateDensity(mass, volume);
   const weight = Number.isFinite(overrides.weight) ? overrides.weight : calculateWeight(mass, gravity);
 
-  return {
+  const createdObject = {
     id: overrides.id || generateObjectId(),
     type,
     position: {
@@ -97,6 +155,15 @@ function createPhysicsObject(overrides = {}) {
     color: overrides.color || "#0f766e",
     locked: Boolean(overrides.locked),
   };
+
+  const initialSourcePatch = {};
+  OBJECT_SOURCE_OF_TRUTH_FIELDS.forEach((field) => {
+    if (Object.prototype.hasOwnProperty.call(createdObject, field)) {
+      initialSourcePatch[field] = createdObject[field];
+    }
+  });
+
+  return applyObjectSourcePatch(createdObject, initialSourcePatch);
 }
 
 function createSimulationStateStore(initialState) {
@@ -429,29 +496,35 @@ function advanceSimulationByDelta(deltaSeconds) {
   const worldHeight = Math.max(1, appState.worldHeight || canvas?.clientHeight || 1);
 
   const boundedObjects = appState.objects.map((object) => {
-    if (object.locked) {
+    const normalizedObject = recalculateDependentValues(object);
+
+    if (normalizedObject.locked) {
       return {
-        ...object,
-        position: { ...object.position },
-        velocity: { ...object.velocity },
+        ...normalizedObject,
+        position: { ...normalizedObject.position },
+        velocity: { ...normalizedObject.velocity },
       };
     }
 
-    const ax = Number.isFinite(object.acceleration.ax) ? object.acceleration.ax : 0;
-    const ay = (Number.isFinite(object.acceleration.ay) ? object.acceleration.ay : 0) + object.gravity;
+    const ax = Number.isFinite(normalizedObject.acceleration.ax) ? normalizedObject.acceleration.ax : 0;
+    const baseAy = Number.isFinite(normalizedObject.acceleration.ay) ? normalizedObject.acceleration.ay : 0;
+    const safeMass = Math.max(normalizedObject.mass, 0.0001);
+    const gravityForce = calculateGravityForce(safeMass, normalizedObject.gravity);
+    const gravityAcceleration = gravityForce / safeMass;
+    const ay = baseAy + gravityAcceleration;
 
-    const nextVx = object.velocity.vx + ax * deltaSeconds;
-    const nextVy = object.velocity.vy + ay * deltaSeconds;
+    const nextVx = normalizedObject.velocity.vx + ax * deltaSeconds;
+    const nextVy = normalizedObject.velocity.vy + ay * deltaSeconds;
 
     const integratedObject = {
-      ...object,
+      ...normalizedObject,
       velocity: {
         vx: nextVx,
         vy: nextVy,
       },
       position: {
-        x: object.position.x + nextVx * deltaSeconds,
-        y: object.position.y + nextVy * deltaSeconds,
+        x: normalizedObject.position.x + nextVx * deltaSeconds,
+        y: normalizedObject.position.y + nextVy * deltaSeconds,
       },
     };
 
@@ -467,7 +540,12 @@ function advanceSimulationByDelta(deltaSeconds) {
 function handleGravityInputChange(event) {
   const parsedValue = Number.parseFloat(event.target.value);
   if (!Number.isNaN(parsedValue)) {
-    simulationStore.update({ currentGravity: parsedValue });
+    const updatedObjects = appState.objects.map((object) => applyObjectSourcePatch(object, { gravity: parsedValue }));
+
+    simulationStore.update({
+      currentGravity: parsedValue,
+      objects: updatedObjects,
+    });
     updateStatusBar();
   } else {
     showToast("Gravity must be a valid number.", "error");
