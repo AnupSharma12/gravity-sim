@@ -211,6 +211,29 @@ body {
   cursor: pointer;
 }
 
+.status-bar {
+  margin-top: var(--space-3);
+  min-height: var(--statusbar-height);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: #f8fafc;
+}
+
+.status-item {
+  font-size: var(--font-size-100);
+  color: var(--muted-text);
+}
+
+.status-item strong {
+  color: var(--text);
+  font-weight: var(--font-weight-semibold);
+}
+
 @media (max-width: 900px) {
   .app {
     width: min(100% - (2 * var(--space-3)), var(--max-content-width));
@@ -242,5 +265,9 @@ body {
   .sim-toolbar__state {
     width: 100%;
     margin-left: 0;
+  }
+
+  .status-bar {
+    gap: var(--space-1) var(--space-2);
   }
 }

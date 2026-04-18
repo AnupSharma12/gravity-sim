@@ -7,13 +7,58 @@ const pauseBtn = document.getElementById("pauseBtn");
 const resetBtn = document.getElementById("resetBtn");
 const stepBtn = document.getElementById("stepBtn");
 const simStateLabel = document.getElementById("simStateLabel");
+const gravityInput = document.getElementById("gravityInput");
+const fpsValue = document.getElementById("fpsValue");
+const objectCountValue = document.getElementById("objectCountValue");
+const gravityValue = document.getElementById("gravityValue");
+const selectedObjectValue = document.getElementById("selectedObjectValue");
 
 const appState = {
   initializedAt: new Date().toISOString(),
   canvasReady: Boolean(canvas),
   isRunning: false,
   stepCount: 0,
+  objectCount: 0,
+  currentGravity: 9.8,
+  selectedObject: "None",
+  fps: 0,
 };
+
+function updateStatusBar() {
+  if (fpsValue) {
+    fpsValue.textContent = String(appState.fps);
+  }
+  if (objectCountValue) {
+    objectCountValue.textContent = String(appState.objectCount);
+  }
+  if (gravityValue) {
+    gravityValue.textContent = String(appState.currentGravity);
+  }
+  if (selectedObjectValue) {
+    selectedObjectValue.textContent = appState.selectedObject;
+  }
+}
+
+function startFpsTracker() {
+  let frameCount = 0;
+  let windowStart = performance.now();
+
+  function tick(now) {
+    frameCount += 1;
+    const elapsed = now - windowStart;
+
+    if (elapsed >= 1000) {
+      appState.fps = Math.round((frameCount * 1000) / elapsed);
+      frameCount = 0;
+      windowStart = now;
+      updateStatusBar();
+    }
+
+    window.requestAnimationFrame(tick);
+  }
+
+  window.requestAnimationFrame(tick);
+}
 
 function updateToolbarStateLabel() {
   if (!simStateLabel) {
@@ -49,15 +94,25 @@ function handlePause() {
 function handleReset() {
   appState.isRunning = false;
   appState.stepCount = 0;
+  appState.selectedObject = "None";
   initSimulationCanvas();
   updateToolbarButtons();
   updateToolbarStateLabel();
+  updateStatusBar();
 }
 
 function handleStep() {
   appState.stepCount += 1;
   initSimulationCanvas();
   updateToolbarStateLabel();
+}
+
+function handleGravityInputChange(event) {
+  const parsedValue = Number.parseFloat(event.target.value);
+  if (!Number.isNaN(parsedValue)) {
+    appState.currentGravity = parsedValue;
+    updateStatusBar();
+  }
 }
 
 function resizeCanvasToContainer(targetCanvas) {
@@ -134,11 +189,16 @@ if (resetBtn) {
 if (stepBtn) {
   stepBtn.addEventListener("click", handleStep);
 }
+if (gravityInput) {
+  gravityInput.addEventListener("input", handleGravityInputChange);
+}
 
 window.addEventListener("resize", initSimulationCanvas);
 window.addEventListener("load", initSimulationCanvas);
 
 updateToolbarButtons();
 updateToolbarStateLabel();
+updateStatusBar();
+startFpsTracker();
 
 console.log("Gravity Simulator scaffold ready", appState);
