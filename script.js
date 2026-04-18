@@ -99,18 +99,43 @@ function createPhysicsObject(overrides = {}) {
   };
 }
 
-const appState = {
+function createSimulationStateStore(initialState) {
+  const state = { ...initialState };
+  const listeners = new Set();
+
+  return {
+    getState() {
+      return state;
+    },
+    update(patch) {
+      Object.assign(state, patch);
+      listeners.forEach((listener) => listener(state));
+    },
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
+}
+
+const simulationStore = createSimulationStateStore({
   initializedAt: new Date().toISOString(),
   canvasReady: Boolean(canvas),
   isRunning: false,
   stepCount: 0,
+  simulationFrameId: null,
+  lastSimulationTimestamp: null,
+  worldWidth: 0,
+  worldHeight: 0,
   objects: [],
   objectCount: 0,
   currentGravity: 9.8,
   selectedObject: "None",
   fps: 0,
   toastTimer: null,
-};
+});
+
+const appState = simulationStore.getState();
 
 function showToast(message, variant = "info") {
   if (!toastArea) {
@@ -129,10 +154,12 @@ function showToast(message, variant = "info") {
     window.clearTimeout(appState.toastTimer);
   }
 
-  appState.toastTimer = window.setTimeout(() => {
-    toast.remove();
-    appState.toastTimer = null;
-  }, 3000);
+  simulationStore.update({
+    toastTimer: window.setTimeout(() => {
+      toast.remove();
+      simulationStore.update({ toastTimer: null });
+    }, 3000),
+  });
 }
 
 function updateStatusBar() {
@@ -161,7 +188,7 @@ function startFpsTracker() {
     const elapsed = now - windowStart;
 
     if (elapsed >= 1000) {
-      appState.fps = Math.round((frameCount * 1000) / elapsed);
+      simulationStore.update({ fps: Math.round((frameCount * 1000) / elapsed) });
       frameCount = 0;
       windowStart = now;
       updateStatusBar();
@@ -192,22 +219,72 @@ function updateToolbarButtons() {
   }
 }
 
+function simulationTick(timestamp) {
+  if (!appState.isRunning) {
+    return;
+  }
+
+  const previousTimestamp = appState.lastSimulationTimestamp ?? timestamp;
+  const rawDeltaSeconds = (timestamp - previousTimestamp) / 1000;
+  const deltaSeconds = Math.max(0, Math.min(rawDeltaSeconds, 0.05));
+
+  simulationStore.update({
+    lastSimulationTimestamp: timestamp,
+    stepCount: appState.stepCount + 1,
+  });
+
+  advanceSimulationByDelta(deltaSeconds);
+  initSimulationCanvas();
+  updateToolbarStateLabel();
+
+  simulationStore.update({
+    simulationFrameId: window.requestAnimationFrame(simulationTick),
+  });
+}
+
+function startSimulationLoop() {
+  if (appState.simulationFrameId !== null) {
+    return;
+  }
+
+  simulationStore.update({
+    lastSimulationTimestamp: null,
+    simulationFrameId: window.requestAnimationFrame(simulationTick),
+  });
+}
+
+function stopSimulationLoop() {
+  if (appState.simulationFrameId !== null) {
+    window.cancelAnimationFrame(appState.simulationFrameId);
+  }
+
+  simulationStore.update({
+    simulationFrameId: null,
+    lastSimulationTimestamp: null,
+  });
+}
+
 function handleStart() {
-  appState.isRunning = true;
+  simulationStore.update({ isRunning: true });
+  startSimulationLoop();
   updateToolbarButtons();
   updateToolbarStateLabel();
 }
 
 function handlePause() {
-  appState.isRunning = false;
+  simulationStore.update({ isRunning: false });
+  stopSimulationLoop();
   updateToolbarButtons();
   updateToolbarStateLabel();
 }
 
 function handleReset() {
-  appState.isRunning = false;
-  appState.stepCount = 0;
-  appState.selectedObject = "None";
+  simulationStore.update({
+    isRunning: false,
+    stepCount: 0,
+    selectedObject: "None",
+  });
+  stopSimulationLoop();
   initSimulationCanvas();
   updateToolbarButtons();
   updateToolbarStateLabel();
@@ -215,15 +292,182 @@ function handleReset() {
 }
 
 function handleStep() {
-  appState.stepCount += 1;
+  advanceSimulationByDelta(1 / 60);
+  simulationStore.update({ stepCount: appState.stepCount + 1 });
   initSimulationCanvas();
   updateToolbarStateLabel();
+}
+
+function getObjectCollisionRadius(object) {
+  if (object.type === "sphere") {
+    return Math.max(0.1, object.size / 2);
+  }
+  return Math.max(0.1, object.size / 2);
+}
+
+function applyWorldBoundsAndFloorCollision(object, worldWidth, worldHeight) {
+  const radius = getObjectCollisionRadius(object);
+  const restitution = 0.6;
+  const floorFriction = 0.985;
+
+  const bounded = {
+    ...object,
+    position: { ...object.position },
+    velocity: { ...object.velocity },
+  };
+
+  if (bounded.position.x - radius < 0) {
+    bounded.position.x = radius;
+    bounded.velocity.vx = Math.abs(bounded.velocity.vx) * restitution;
+  } else if (bounded.position.x + radius > worldWidth) {
+    bounded.position.x = worldWidth - radius;
+    bounded.velocity.vx = -Math.abs(bounded.velocity.vx) * restitution;
+  }
+
+  if (bounded.position.y - radius < 0) {
+    bounded.position.y = radius;
+    bounded.velocity.vy = Math.abs(bounded.velocity.vy) * restitution;
+  }
+
+  // Floor collision at worldHeight with bounce damping.
+  if (bounded.position.y + radius > worldHeight) {
+    bounded.position.y = worldHeight - radius;
+    bounded.velocity.vy = -Math.abs(bounded.velocity.vy) * restitution;
+    bounded.velocity.vx *= floorFriction;
+  }
+
+  return bounded;
+}
+
+function resolveObjectCollisions(objects) {
+  const resolvedObjects = objects.map((object) => ({
+    ...object,
+    position: { ...object.position },
+    velocity: { ...object.velocity },
+  }));
+
+  const restitution = 0.5;
+
+  for (let i = 0; i < resolvedObjects.length; i += 1) {
+    for (let j = i + 1; j < resolvedObjects.length; j += 1) {
+      const objectA = resolvedObjects[i];
+      const objectB = resolvedObjects[j];
+
+      const dx = objectB.position.x - objectA.position.x;
+      const dy = objectB.position.y - objectA.position.y;
+      const distanceSquared = dx * dx + dy * dy;
+
+      const radiusA = getObjectCollisionRadius(objectA);
+      const radiusB = getObjectCollisionRadius(objectB);
+      const minDistance = radiusA + radiusB;
+
+      if (distanceSquared >= minDistance * minDistance) {
+        continue;
+      }
+
+      const distance = Math.sqrt(Math.max(distanceSquared, 1e-8));
+      const normalX = dx / distance;
+      const normalY = dy / distance;
+      const overlap = minDistance - distance;
+
+      const invMassA = objectA.locked ? 0 : 1 / Math.max(objectA.mass, 0.0001);
+      const invMassB = objectB.locked ? 0 : 1 / Math.max(objectB.mass, 0.0001);
+      const invMassTotal = invMassA + invMassB;
+
+      if (invMassTotal <= 0) {
+        continue;
+      }
+
+      const correctionA = (overlap * invMassA) / invMassTotal;
+      const correctionB = (overlap * invMassB) / invMassTotal;
+
+      if (!objectA.locked) {
+        objectA.position.x -= normalX * correctionA;
+        objectA.position.y -= normalY * correctionA;
+      }
+      if (!objectB.locked) {
+        objectB.position.x += normalX * correctionB;
+        objectB.position.y += normalY * correctionB;
+      }
+
+      const relativeVelocityX = objectB.velocity.vx - objectA.velocity.vx;
+      const relativeVelocityY = objectB.velocity.vy - objectA.velocity.vy;
+      const velocityAlongNormal = relativeVelocityX * normalX + relativeVelocityY * normalY;
+
+      if (velocityAlongNormal > 0) {
+        continue;
+      }
+
+      const impulseScalar = (-(1 + restitution) * velocityAlongNormal) / invMassTotal;
+      const impulseX = impulseScalar * normalX;
+      const impulseY = impulseScalar * normalY;
+
+      if (!objectA.locked) {
+        objectA.velocity.vx -= impulseX * invMassA;
+        objectA.velocity.vy -= impulseY * invMassA;
+      }
+      if (!objectB.locked) {
+        objectB.velocity.vx += impulseX * invMassB;
+        objectB.velocity.vy += impulseY * invMassB;
+      }
+    }
+  }
+
+  return resolvedObjects;
+}
+
+/**
+ * Applies a delta-time integration step to all unlocked objects.
+ * @param {number} deltaSeconds
+ */
+function advanceSimulationByDelta(deltaSeconds) {
+  if (!Number.isFinite(deltaSeconds) || deltaSeconds <= 0) {
+    return;
+  }
+
+  const worldWidth = Math.max(1, appState.worldWidth || canvas?.clientWidth || 1);
+  const worldHeight = Math.max(1, appState.worldHeight || canvas?.clientHeight || 1);
+
+  const boundedObjects = appState.objects.map((object) => {
+    if (object.locked) {
+      return {
+        ...object,
+        position: { ...object.position },
+        velocity: { ...object.velocity },
+      };
+    }
+
+    const ax = Number.isFinite(object.acceleration.ax) ? object.acceleration.ax : 0;
+    const ay = (Number.isFinite(object.acceleration.ay) ? object.acceleration.ay : 0) + object.gravity;
+
+    const nextVx = object.velocity.vx + ax * deltaSeconds;
+    const nextVy = object.velocity.vy + ay * deltaSeconds;
+
+    const integratedObject = {
+      ...object,
+      velocity: {
+        vx: nextVx,
+        vy: nextVy,
+      },
+      position: {
+        x: object.position.x + nextVx * deltaSeconds,
+        y: object.position.y + nextVy * deltaSeconds,
+      },
+    };
+
+    return applyWorldBoundsAndFloorCollision(integratedObject, worldWidth, worldHeight);
+  });
+
+  const updatedObjects = resolveObjectCollisions(boundedObjects);
+
+  simulationStore.update({ objects: updatedObjects });
+  updateStatusBar();
 }
 
 function handleGravityInputChange(event) {
   const parsedValue = Number.parseFloat(event.target.value);
   if (!Number.isNaN(parsedValue)) {
-    appState.currentGravity = parsedValue;
+    simulationStore.update({ currentGravity: parsedValue });
     updateStatusBar();
   } else {
     showToast("Gravity must be a valid number.", "error");
@@ -286,6 +530,13 @@ function initSimulationCanvas() {
   }
 
   drawCanvasPlaceholder(resized.ctx, resized.cssWidth, resized.cssHeight);
+
+  if (resized.cssWidth !== appState.worldWidth || resized.cssHeight !== appState.worldHeight) {
+    simulationStore.update({
+      worldWidth: resized.cssWidth,
+      worldHeight: resized.cssHeight,
+    });
+  }
 
   if (canvasSizeLabel) {
     canvasSizeLabel.textContent = `${resized.cssWidth} x ${resized.cssHeight} px`;
