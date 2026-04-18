@@ -12,6 +12,7 @@ const fpsValue = document.getElementById("fpsValue");
 const objectCountValue = document.getElementById("objectCountValue");
 const gravityValue = document.getElementById("gravityValue");
 const selectedObjectValue = document.getElementById("selectedObjectValue");
+const toastArea = document.getElementById("toastArea");
 
 const appState = {
   initializedAt: new Date().toISOString(),
@@ -22,7 +23,31 @@ const appState = {
   currentGravity: 9.8,
   selectedObject: "None",
   fps: 0,
+  toastTimer: null,
 };
+
+function showToast(message, variant = "info") {
+  if (!toastArea) {
+    return;
+  }
+
+  toastArea.innerHTML = "";
+
+  const toast = document.createElement("div");
+  toast.className = `toast toast--${variant}`;
+  toast.setAttribute("role", variant === "error" ? "alert" : "status");
+  toast.textContent = message;
+  toastArea.appendChild(toast);
+
+  if (appState.toastTimer) {
+    window.clearTimeout(appState.toastTimer);
+  }
+
+  appState.toastTimer = window.setTimeout(() => {
+    toast.remove();
+    appState.toastTimer = null;
+  }, 3000);
+}
 
 function updateStatusBar() {
   if (fpsValue) {
@@ -112,6 +137,8 @@ function handleGravityInputChange(event) {
   if (!Number.isNaN(parsedValue)) {
     appState.currentGravity = parsedValue;
     updateStatusBar();
+  } else {
+    showToast("Gravity must be a valid number.", "error");
   }
 }
 
@@ -200,5 +227,6 @@ updateToolbarButtons();
 updateToolbarStateLabel();
 updateStatusBar();
 startFpsTracker();
+showToast("Validation messages will appear here.", "info");
 
 console.log("Gravity Simulator scaffold ready", appState);
