@@ -155,6 +155,7 @@ body {
   height: min(62vh, 620px);
   min-height: 320px;
   background: linear-gradient(180deg, #ffffff 0%, #f7fafc 100%);
+  touch-action: none;
 }
 
 .control-panel {

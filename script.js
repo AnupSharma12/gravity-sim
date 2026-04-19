@@ -209,6 +209,13 @@ const simulationStore = createSimulationStateStore({
   pendingSpawnPosition: { x: 0, y: 0 },
   currentGravity: 9.8,
   selectedObject: "None",
+  selectedObjectId: null,
+  draggingPointerId: null,
+  draggingObjectId: null,
+  dragOffset: { x: 0, y: 0 },
+  dragVelocity: { vx: 0, vy: 0 },
+  lastDragPoint: null,
+  lastDragTimestamp: 0,
   fps: 0,
   toastTimer: null,
 });
@@ -259,6 +266,193 @@ function updateStatusBar() {
   if (selectedObjectValue) {
     selectedObjectValue.textContent = appState.selectedObject;
   }
+}
+
+function getCanvasRelativePoint(event) {
+  if (!canvas) {
+    return null;
+  }
+
+  const bounds = canvas.getBoundingClientRect();
+  return {
+    x: event.clientX - bounds.left,
+    y: event.clientY - bounds.top,
+  };
+}
+
+function findObjectAtPoint(pointX, pointY) {
+  for (let index = appState.objects.length - 1; index >= 0; index -= 1) {
+    const object = appState.objects[index];
+    const radius = getObjectCollisionRadius(object);
+    const dx = pointX - object.position.x;
+    const dy = pointY - object.position.y;
+
+    if (object.type === "cube") {
+      if (Math.abs(dx) <= radius && Math.abs(dy) <= radius) {
+        return object;
+      }
+      continue;
+    }
+
+    if (dx * dx + dy * dy <= radius * radius) {
+      return object;
+    }
+  }
+
+  return null;
+}
+
+function clamp(value, minValue, maxValue) {
+  return Math.min(maxValue, Math.max(minValue, value));
+}
+
+function handleCanvasPointerDown(event) {
+  const point = getCanvasRelativePoint(event);
+  if (!point) {
+    return;
+  }
+
+  const selectedObject = findObjectAtPoint(point.x, point.y);
+  if (!selectedObject) {
+    simulationStore.update({
+      selectedObjectId: null,
+      selectedObject: "None",
+      draggingPointerId: null,
+      draggingObjectId: null,
+      dragVelocity: { vx: 0, vy: 0 },
+      lastDragPoint: null,
+      lastDragTimestamp: 0,
+    });
+    updateStatusBar();
+    return;
+  }
+
+  event.preventDefault();
+  if (canvas && typeof canvas.setPointerCapture === "function") {
+    canvas.setPointerCapture(event.pointerId);
+  }
+
+  simulationStore.update({
+    selectedObjectId: selectedObject.id,
+    selectedObject: `${selectedObject.type} (${selectedObject.id.slice(0, 8)})`,
+    draggingPointerId: event.pointerId,
+    draggingObjectId: selectedObject.id,
+    dragOffset: {
+      x: point.x - selectedObject.position.x,
+      y: point.y - selectedObject.position.y,
+    },
+    dragVelocity: { vx: 0, vy: 0 },
+    lastDragPoint: point,
+    lastDragTimestamp: event.timeStamp,
+  });
+  drawCurrentCanvasFrame();
+  updateStatusBar();
+}
+
+function handleCanvasPointerMove(event) {
+  if (appState.draggingPointerId !== event.pointerId || !appState.draggingObjectId) {
+    return;
+  }
+
+  const point = getCanvasRelativePoint(event);
+  if (!point) {
+    return;
+  }
+
+  event.preventDefault();
+
+  const objectIndex = appState.objects.findIndex((object) => object.id === appState.draggingObjectId);
+  if (objectIndex < 0) {
+    simulationStore.update({
+      draggingPointerId: null,
+      draggingObjectId: null,
+    });
+    return;
+  }
+
+  const objectToMove = appState.objects[objectIndex];
+  const radius = getObjectCollisionRadius(objectToMove);
+  const worldWidth = Math.max(1, appState.worldWidth || canvas?.clientWidth || 1);
+  const worldHeight = Math.max(1, appState.worldHeight || canvas?.clientHeight || 1);
+
+  const nextX = clamp(point.x - appState.dragOffset.x, radius, Math.max(radius, worldWidth - radius));
+  const nextY = clamp(point.y - appState.dragOffset.y, radius, Math.max(radius, worldHeight - radius));
+
+  const previousPoint = appState.lastDragPoint;
+  const previousTimestamp = appState.lastDragTimestamp;
+  let estimatedVelocity = appState.dragVelocity;
+
+  if (previousPoint && Number.isFinite(previousTimestamp)) {
+    const deltaMs = event.timeStamp - previousTimestamp;
+    if (deltaMs > 0) {
+      const rawVx = ((point.x - previousPoint.x) / deltaMs) * 1000;
+      const rawVy = ((point.y - previousPoint.y) / deltaMs) * 1000;
+      const maxVelocity = 1800;
+      const smoothing = 0.25;
+      const targetVelocity = {
+        vx: clamp(rawVx, -maxVelocity, maxVelocity),
+        vy: clamp(rawVy, -maxVelocity, maxVelocity),
+      };
+      estimatedVelocity = {
+        vx: appState.dragVelocity.vx + (targetVelocity.vx - appState.dragVelocity.vx) * smoothing,
+        vy: appState.dragVelocity.vy + (targetVelocity.vy - appState.dragVelocity.vy) * smoothing,
+      };
+    }
+  }
+
+  const movedObject = applyObjectSourcePatch(objectToMove, {
+    position: { x: nextX, y: nextY },
+    velocity: estimatedVelocity,
+    acceleration: { ax: 0, ay: 0 },
+  });
+
+  const updatedObjects = [...appState.objects];
+  updatedObjects[objectIndex] = movedObject;
+
+  simulationStore.update({
+    objects: updatedObjects,
+    dragVelocity: estimatedVelocity,
+    lastDragPoint: point,
+    lastDragTimestamp: event.timeStamp,
+  });
+  drawCurrentCanvasFrame();
+  updateStatusBar();
+}
+
+function handleCanvasPointerRelease(event) {
+  if (appState.draggingPointerId !== event.pointerId) {
+    return;
+  }
+
+  if (canvas && typeof canvas.releasePointerCapture === "function" && canvas.hasPointerCapture(event.pointerId)) {
+    canvas.releasePointerCapture(event.pointerId);
+  }
+
+  const releaseVelocity = appState.dragVelocity;
+  const objectIndex = appState.objects.findIndex((object) => object.id === appState.draggingObjectId);
+
+  if (objectIndex >= 0) {
+    const objectToRelease = appState.objects[objectIndex];
+    const releasedObject = applyObjectSourcePatch(objectToRelease, {
+      velocity: {
+        vx: Number.isFinite(releaseVelocity.vx) ? releaseVelocity.vx : 0,
+        vy: Number.isFinite(releaseVelocity.vy) ? releaseVelocity.vy : 0,
+      },
+    });
+
+    const updatedObjects = [...appState.objects];
+    updatedObjects[objectIndex] = releasedObject;
+    simulationStore.update({ objects: updatedObjects });
+  }
+
+  simulationStore.update({
+    draggingPointerId: null,
+    draggingObjectId: null,
+    dragVelocity: { vx: 0, vy: 0 },
+    lastDragPoint: null,
+    lastDragTimestamp: 0,
+  });
+  drawCurrentCanvasFrame();
 }
 
 function parseOptionalNumber(inputElement) {
@@ -370,23 +564,44 @@ function validateCreateObjectForm() {
 function drawSimulationObjects(ctx, objects) {
   objects.forEach((object) => {
     const radius = getObjectCollisionRadius(object);
+    const isSelected = object.id === appState.selectedObjectId;
     ctx.fillStyle = object.color || "#0f766e";
     ctx.strokeStyle = "#0b4f4a";
     ctx.lineWidth = 1.25;
+    const side = radius * 2;
 
     if (object.type === "sphere") {
       ctx.beginPath();
       ctx.arc(object.position.x, object.position.y, radius, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
-      return;
+    } else {
+      ctx.beginPath();
+      ctx.rect(object.position.x - radius, object.position.y - radius, side, side);
+      ctx.fill();
+      ctx.stroke();
     }
 
-    const side = radius * 2;
-    ctx.beginPath();
-    ctx.rect(object.position.x - radius, object.position.y - radius, side, side);
-    ctx.fill();
-    ctx.stroke();
+    if (isSelected) {
+      ctx.save();
+      ctx.strokeStyle = "#f59e0b";
+      ctx.lineWidth = 3;
+      ctx.setLineDash([7, 5]);
+      ctx.lineDashOffset = -((performance.now() / 24) % 12);
+
+      if (object.type === "sphere") {
+        ctx.beginPath();
+        ctx.arc(object.position.x, object.position.y, radius + 6, 0, Math.PI * 2);
+        ctx.stroke();
+      } else {
+        const highlightSide = side + 12;
+        ctx.beginPath();
+        ctx.rect(object.position.x - radius - 6, object.position.y - radius - 6, highlightSide, highlightSide);
+        ctx.stroke();
+      }
+
+      ctx.restore();
+    }
   });
 }
 
@@ -576,6 +791,12 @@ function handleReset() {
     isRunning: false,
     stepCount: 0,
     selectedObject: "None",
+    selectedObjectId: null,
+    draggingPointerId: null,
+    draggingObjectId: null,
+    dragVelocity: { vx: 0, vy: 0 },
+    lastDragPoint: null,
+    lastDragTimestamp: 0,
   });
   stopSimulationLoop();
   initSimulationCanvas();
@@ -724,6 +945,14 @@ function advanceSimulationByDelta(deltaSeconds) {
   const boundedObjects = appState.objects.map((object) => {
     const normalizedObject = recalculateDependentValues(object);
 
+    if (appState.draggingObjectId && normalizedObject.id === appState.draggingObjectId) {
+      return {
+        ...normalizedObject,
+        position: { ...normalizedObject.position },
+        velocity: { ...normalizedObject.velocity },
+      };
+    }
+
     if (normalizedObject.locked) {
       return {
         ...normalizedObject,
@@ -824,6 +1053,21 @@ function drawCanvasPlaceholder(ctx, width, height) {
   drawSimulationObjects(ctx, appState.objects);
 }
 
+function drawCurrentCanvasFrame() {
+  if (!canvas) {
+    return;
+  }
+
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    return;
+  }
+
+  const width = Math.max(1, appState.worldWidth || canvas.clientWidth || 1);
+  const height = Math.max(1, appState.worldHeight || canvas.clientHeight || 1);
+  drawCanvasPlaceholder(ctx, width, height);
+}
+
 function initSimulationCanvas() {
   if (!canvas) {
     console.warn("Simulation canvas element not found.");
@@ -847,8 +1091,6 @@ function initSimulationCanvas() {
   if (canvasSizeLabel) {
     canvasSizeLabel.textContent = `${resized.cssWidth} x ${resized.cssHeight} px`;
   }
-
-  updateRandomSpawnPreview();
 }
 
 if (startBtn) {
@@ -874,6 +1116,12 @@ if (sizeInput) {
 }
 if (addObjectBtn) {
   addObjectBtn.addEventListener("click", handleAddObject);
+}
+if (canvas) {
+  canvas.addEventListener("pointerdown", handleCanvasPointerDown);
+  canvas.addEventListener("pointermove", handleCanvasPointerMove);
+  canvas.addEventListener("pointerup", handleCanvasPointerRelease);
+  canvas.addEventListener("pointercancel", handleCanvasPointerRelease);
 }
 
 window.addEventListener("resize", initSimulationCanvas);
