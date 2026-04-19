@@ -8,6 +8,8 @@ const resetBtn = document.getElementById("resetBtn");
 const stepBtn = document.getElementById("stepBtn");
 const simStateLabel = document.getElementById("simStateLabel");
 const gravityInput = document.getElementById("gravityInput");
+const timeScaleInput = document.getElementById("timeScaleInput");
+const timeScaleValue = document.getElementById("timeScaleValue");
 const sizeInput = document.getElementById("sizeInput");
 const randomSpawnToggle = document.getElementById("randomSpawnToggle");
 const randomSpawnPreview = document.getElementById("randomSpawnPreview");
@@ -176,6 +178,7 @@ const simulationStore = createSimulationStateStore({
   randomSpawnEnabled: false,
   pendingSpawnPosition: { x: 0, y: 0 },
   currentGravity: 9.8,
+  timeScale: 1,
   selectedObject: "None",
   selectedObjectId: null,
   draggingPointerId: null,
@@ -992,7 +995,7 @@ function updateToolbarStateLabel() {
   }
 
   const stateText = appState.isRunning ? "Running" : "Paused";
-  simStateLabel.textContent = `State: ${stateText} | Steps: ${appState.stepCount}`;
+  simStateLabel.textContent = `State: ${stateText} | Steps: ${appState.stepCount} | Speed: ${appState.timeScale.toFixed(2)}x`;
 }
 
 function updateToolbarButtons() {
@@ -1012,7 +1015,8 @@ function simulationTick(timestamp) {
 
   const previousTimestamp = appState.lastSimulationTimestamp ?? timestamp;
   const rawDeltaSeconds = (timestamp - previousTimestamp) / 1000;
-  const deltaSeconds = Math.max(0, Math.min(rawDeltaSeconds, 0.05));
+  const scaledDeltaSeconds = rawDeltaSeconds * appState.timeScale;
+  const deltaSeconds = Math.max(0, Math.min(scaledDeltaSeconds, 0.05));
 
   simulationStore.update({
     lastSimulationTimestamp: timestamp,
@@ -1289,6 +1293,26 @@ function handleGravityInputChange(event) {
   }
 }
 
+function handleTimeScaleInputChange(event) {
+  const parsedValue = Number.parseFloat(event.target.value);
+  if (!Number.isFinite(parsedValue)) {
+    showToast("Time scale must be a valid number.", "error");
+    return;
+  }
+
+  const clampedValue = Math.min(3, Math.max(0.25, parsedValue));
+  if (timeScaleInput) {
+    timeScaleInput.value = String(clampedValue);
+  }
+  simulationStore.update({ timeScale: clampedValue });
+
+  if (timeScaleValue) {
+    timeScaleValue.textContent = `Simulation speed: ${clampedValue.toFixed(2)}x`;
+  }
+
+  updateToolbarStateLabel();
+}
+
 function resizeCanvasToContainer(targetCanvas) {
   const ratio = window.devicePixelRatio || 1;
   const cssWidth = Math.max(1, Math.floor(targetCanvas.clientWidth));
@@ -1386,6 +1410,10 @@ if (stepBtn) {
 if (gravityInput) {
   gravityInput.addEventListener("input", handleGravityInputChange);
 }
+if (timeScaleInput) {
+  timeScaleInput.addEventListener("input", handleTimeScaleInputChange);
+  timeScaleInput.addEventListener("change", handleTimeScaleInputChange);
+}
 if (randomSpawnToggle) {
   randomSpawnToggle.addEventListener("change", handleRandomSpawnToggle);
 }
@@ -1422,6 +1450,9 @@ window.addEventListener("load", initSimulationCanvas);
 updateToolbarButtons();
 updateToolbarStateLabel();
 updateStatusBar();
+if (timeScaleValue) {
+  timeScaleValue.textContent = `Simulation speed: ${appState.timeScale.toFixed(2)}x`;
+}
 updateRandomSpawnPreview();
 startFpsTracker();
 showToast("Validation messages will appear here.", "info");

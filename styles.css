@@ -213,10 +213,18 @@
 .control-form select,
 .control-form button {
   width: 100%;
+  box-sizing: border-box;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 0.55rem 0.65rem;
   font: inherit;
+}
+
+.control-form input[type="range"] {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  accent-color: var(--primary);
 }
 
 .control-form button {
