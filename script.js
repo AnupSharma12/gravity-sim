@@ -8,6 +8,8 @@ const resetBtn = document.getElementById("resetBtn");
 const stepBtn = document.getElementById("stepBtn");
 const simStateLabel = document.getElementById("simStateLabel");
 const gravityInput = document.getElementById("gravityInput");
+const gravitySliderInput = document.getElementById("gravitySliderInput");
+const gravityControlValue = document.getElementById("gravityControlValue");
 const timeScaleInput = document.getElementById("timeScaleInput");
 const timeScaleValue = document.getElementById("timeScaleValue");
 const sizeInput = document.getElementById("sizeInput");
@@ -1259,6 +1261,10 @@ function advanceSimulationByDelta(deltaSeconds) {
 
     const integratedObject = {
       ...normalizedObject,
+      acceleration: {
+        ax,
+        ay,
+      },
       velocity: {
         vx: nextVx,
         vy: nextVy,
@@ -1280,17 +1286,29 @@ function advanceSimulationByDelta(deltaSeconds) {
 
 function handleGravityInputChange(event) {
   const parsedValue = Number.parseFloat(event.target.value);
-  if (!Number.isNaN(parsedValue)) {
-    const updatedObjects = appState.objects.map((object) => applyObjectSourcePatch(object, { gravity: parsedValue }));
-
-    simulationStore.update({
-      currentGravity: parsedValue,
-      objects: updatedObjects,
-    });
-    updateStatusBar();
-  } else {
+  if (Number.isNaN(parsedValue)) {
     showToast("Gravity must be a valid number.", "error");
+    return;
   }
+
+  const clampedValue = Math.min(30, Math.max(0, parsedValue));
+  if (gravityInput) {
+    gravityInput.value = String(clampedValue);
+  }
+  if (gravitySliderInput) {
+    gravitySliderInput.value = String(clampedValue);
+  }
+  if (gravityControlValue) {
+    gravityControlValue.textContent = `Global gravity: ${clampedValue.toFixed(2)} m/s²`;
+  }
+
+  const updatedObjects = appState.objects.map((object) => applyObjectSourcePatch(object, { gravity: clampedValue }));
+
+  simulationStore.update({
+    currentGravity: clampedValue,
+    objects: updatedObjects,
+  });
+  updateStatusBar();
 }
 
 function handleTimeScaleInputChange(event) {
@@ -1410,6 +1428,10 @@ if (stepBtn) {
 if (gravityInput) {
   gravityInput.addEventListener("input", handleGravityInputChange);
 }
+if (gravitySliderInput) {
+  gravitySliderInput.addEventListener("input", handleGravityInputChange);
+  gravitySliderInput.addEventListener("change", handleGravityInputChange);
+}
 if (timeScaleInput) {
   timeScaleInput.addEventListener("input", handleTimeScaleInputChange);
   timeScaleInput.addEventListener("change", handleTimeScaleInputChange);
@@ -1450,6 +1472,15 @@ window.addEventListener("load", initSimulationCanvas);
 updateToolbarButtons();
 updateToolbarStateLabel();
 updateStatusBar();
+if (gravityInput) {
+  gravityInput.value = String(appState.currentGravity);
+}
+if (gravitySliderInput) {
+  gravitySliderInput.value = String(appState.currentGravity);
+}
+if (gravityControlValue) {
+  gravityControlValue.textContent = `Global gravity: ${appState.currentGravity.toFixed(2)} m/s²`;
+}
 if (timeScaleValue) {
   timeScaleValue.textContent = `Simulation speed: ${appState.timeScale.toFixed(2)}x`;
 }
