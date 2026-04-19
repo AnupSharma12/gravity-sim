@@ -14,6 +14,7 @@ const timeScaleInput = document.getElementById("timeScaleInput");
 const timeScaleValue = document.getElementById("timeScaleValue");
 const collisionToggleInput = document.getElementById("collisionToggleInput");
 const trailsToggleInput = document.getElementById("trailsToggleInput");
+const velocityVectorsToggleInput = document.getElementById("velocityVectorsToggleInput");
 const sizeInput = document.getElementById("sizeInput");
 const randomSpawnToggle = document.getElementById("randomSpawnToggle");
 const randomSpawnPreview = document.getElementById("randomSpawnPreview");
@@ -21,15 +22,12 @@ const fpsValue = document.getElementById("fpsValue");
 const objectCountValue = document.getElementById("objectCountValue");
 const gravityValue = document.getElementById("gravityValue");
 const selectedObjectValue = document.getElementById("selectedObjectValue");
-const bulkApplyModeInput = document.getElementById("bulkApplyMode");
-const bulkGravityInput = document.getElementById("bulkGravityInput");
 const bulkSizeInput = document.getElementById("bulkSizeInput");
 const bulkApplyBtn = document.getElementById("bulkApplyBtn");
 const selectedTypeValue = document.getElementById("selectedTypeValue");
 const selectedIdValue = document.getElementById("selectedIdValue");
 const selectedSizeValue = document.getElementById("selectedSizeValue");
 const selectedGravityValue = document.getElementById("selectedGravityValue");
-const selectedObjectEditor = document.getElementById("selectedObjectEditor");
 const selectedGravityInput = document.getElementById("selectedGravityInput");
 const selectedSizeInput = document.getElementById("selectedSizeInput");
 const selectedDuplicateBtn = document.getElementById("selectedDuplicateBtn");
@@ -186,6 +184,7 @@ const simulationStore = createSimulationStateStore({
   timeScale: 1,
   collisionsEnabled: true,
   trailsEnabled: false,
+  velocityVectorsEnabled: false,
   trailHistory: {},
   selectedObject: "None",
   selectedObjectId: null,
@@ -590,18 +589,26 @@ function updateSelectedObjectPanel() {
   const selectedObject = getSelectedObject();
   const hasSelection = Boolean(selectedObject);
 
-  if (selectedTypeValue) {
-    selectedTypeValue.textContent = hasSelection ? selectedObject.type : "None";
+  function updateSummaryValue(element, nextText) {
+    if (!element) {
+      return;
+    }
+
+    if (element.textContent === nextText) {
+      return;
+    }
+
+    element.textContent = nextText;
+    element.classList.add("value-updated");
+    window.setTimeout(() => {
+      element.classList.remove("value-updated");
+    }, 220);
   }
-  if (selectedIdValue) {
-    selectedIdValue.textContent = hasSelection ? selectedObject.id.slice(0, 8) : "None";
-  }
-  if (selectedSizeValue) {
-    selectedSizeValue.textContent = hasSelection ? formatSelectedNumber(selectedObject.size) : "-";
-  }
-  if (selectedGravityValue) {
-    selectedGravityValue.textContent = hasSelection ? formatSelectedNumber(selectedObject.gravity) : "-";
-  }
+
+  updateSummaryValue(selectedTypeValue, hasSelection ? selectedObject.type : "None");
+  updateSummaryValue(selectedIdValue, hasSelection ? selectedObject.id.slice(0, 8) : "None");
+  updateSummaryValue(selectedSizeValue, hasSelection ? formatSelectedNumber(selectedObject.size) : "-");
+  updateSummaryValue(selectedGravityValue, hasSelection ? formatSelectedNumber(selectedObject.gravity) : "-");
 
   if (selectedDuplicateBtn) {
     selectedDuplicateBtn.disabled = !hasSelection;
@@ -908,21 +915,66 @@ function drawSimulationObjects(ctx, objects) {
   objects.forEach((object) => {
     const radius = getObjectCollisionRadius(object);
     const isSelected = object.id === appState.selectedObjectId;
-    ctx.fillStyle = object.color || "#0f766e";
+    const baseColor = object.color || "#0f766e";
+    ctx.fillStyle = baseColor;
     ctx.strokeStyle = "#0b4f4a";
     ctx.lineWidth = 1.25;
     const side = radius * 2;
 
     if (object.type === "sphere") {
+      const gradient = ctx.createRadialGradient(
+        object.position.x - radius * 0.3,
+        object.position.y - radius * 0.35,
+        radius * 0.15,
+        object.position.x,
+        object.position.y,
+        radius,
+      );
+      gradient.addColorStop(0, "#f0fdfa");
+      gradient.addColorStop(0.35, baseColor);
+      gradient.addColorStop(1, "#115e59");
+
       ctx.beginPath();
       ctx.arc(object.position.x, object.position.y, radius, 0, Math.PI * 2);
+      ctx.fillStyle = gradient;
       ctx.fill();
       ctx.stroke();
-    } else {
+
+      ctx.save();
       ctx.beginPath();
-      ctx.rect(object.position.x - radius, object.position.y - radius, side, side);
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.4)";
+      ctx.lineWidth = Math.max(1, radius * 0.14);
+      ctx.arc(object.position.x - radius * 0.22, object.position.y - radius * 0.2, radius * 0.25, Math.PI * 0.9, Math.PI * 1.75);
+      ctx.stroke();
+      ctx.restore();
+    } else {
+      const left = object.position.x - radius;
+      const top = object.position.y - radius;
+
+      ctx.beginPath();
+      ctx.rect(left, top, side, side);
       ctx.fill();
       ctx.stroke();
+
+      ctx.save();
+      ctx.fillStyle = "rgba(255, 255, 255, 0.24)";
+      ctx.beginPath();
+      ctx.moveTo(left, top);
+      ctx.lineTo(left + side, top);
+      ctx.lineTo(left + side * 0.86, top + side * 0.16);
+      ctx.lineTo(left + side * 0.14, top + side * 0.16);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = "rgba(15, 23, 42, 0.17)";
+      ctx.beginPath();
+      ctx.moveTo(left + side, top);
+      ctx.lineTo(left + side, top + side);
+      ctx.lineTo(left + side * 0.84, top + side * 0.86);
+      ctx.lineTo(left + side * 0.84, top + side * 0.14);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
     }
 
     if (isSelected) {
@@ -945,6 +997,50 @@ function drawSimulationObjects(ctx, objects) {
 
       ctx.restore();
     }
+  });
+}
+
+function drawObjectVelocityVectors(ctx, objects) {
+  const vectorScale = 0.1;
+
+  objects.forEach((object) => {
+    const velocityX = Number.isFinite(object.velocity?.vx) ? object.velocity.vx : 0;
+    const velocityY = Number.isFinite(object.velocity?.vy) ? object.velocity.vy : 0;
+    const speed = Math.hypot(velocityX, velocityY);
+    if (speed < 4) {
+      return;
+    }
+
+    const startX = object.position.x;
+    const startY = object.position.y;
+    const endX = startX + velocityX * vectorScale;
+    const endY = startY + velocityY * vectorScale;
+    const angle = Math.atan2(endY - startY, endX - startX);
+    const arrowHeadSize = 8;
+
+    ctx.save();
+    ctx.strokeStyle = object.id === appState.selectedObjectId ? "#ea580c" : "#2563eb";
+    ctx.fillStyle = ctx.strokeStyle;
+    ctx.lineWidth = 2;
+
+    ctx.beginPath();
+    ctx.moveTo(startX, startY);
+    ctx.lineTo(endX, endY);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(endX, endY);
+    ctx.lineTo(
+      endX - arrowHeadSize * Math.cos(angle - Math.PI / 6),
+      endY - arrowHeadSize * Math.sin(angle - Math.PI / 6),
+    );
+    ctx.lineTo(
+      endX - arrowHeadSize * Math.cos(angle + Math.PI / 6),
+      endY - arrowHeadSize * Math.sin(angle + Math.PI / 6),
+    );
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
   });
 }
 
@@ -1182,6 +1278,11 @@ function handleTrailsToggleChange(event) {
   }
 
   ensureTrailHistoryForObjects(appState.objects);
+  drawCurrentCanvasFrame();
+}
+
+function handleVelocityVectorsToggleChange(event) {
+  simulationStore.update({ velocityVectorsEnabled: event.target.checked });
   drawCurrentCanvasFrame();
 }
 
@@ -1468,6 +1569,10 @@ function drawCanvasPlaceholder(ctx, width, height) {
   }
 
   drawSimulationObjects(ctx, appState.objects);
+
+  if (appState.velocityVectorsEnabled) {
+    drawObjectVelocityVectors(ctx, appState.objects);
+  }
 }
 
 function drawCurrentCanvasFrame() {
@@ -1539,6 +1644,9 @@ if (collisionToggleInput) {
 if (trailsToggleInput) {
   trailsToggleInput.addEventListener("change", handleTrailsToggleChange);
 }
+if (velocityVectorsToggleInput) {
+  velocityVectorsToggleInput.addEventListener("change", handleVelocityVectorsToggleChange);
+}
 if (randomSpawnToggle) {
   randomSpawnToggle.addEventListener("change", handleRandomSpawnToggle);
 }
@@ -1592,6 +1700,9 @@ if (collisionToggleInput) {
 }
 if (trailsToggleInput) {
   trailsToggleInput.checked = appState.trailsEnabled;
+}
+if (velocityVectorsToggleInput) {
+  velocityVectorsToggleInput.checked = appState.velocityVectorsEnabled;
 }
 updateRandomSpawnPreview();
 startFpsTracker();
