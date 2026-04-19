@@ -42,10 +42,18 @@
           ></canvas>
         </section>
 
-        <aside class="control-panel" aria-label="Object Controls">
-          <h2>Object Controls</h2>
+        <aside class="control-panel" aria-label="Simulation Settings and Object Controls">
+          <h2>Simulation Settings</h2>
 
           <form class="control-form" aria-label="Create and Edit Object">
+            <fieldset id="simulationSettingsForm" aria-label="Simulation Settings">
+              <legend>Simulation Settings</legend>
+
+              <label for="gravityInput">Global Gravity</label>
+              <input id="gravityInput" name="gravity" type="number" step="0.1" value="9.8" placeholder="9.8" />
+              <p class="control-form__hint">This updates gravity for every object in the scene.</p>
+            </fieldset>
+
             <fieldset id="createObjectForm" aria-label="Object Creation Form">
               <legend>Create Object</legend>
 
@@ -59,7 +67,7 @@
               <input id="massInput" name="mass" type="number" min="0" step="0.1" value="10" placeholder="10" />
 
               <label for="sizeInput">Size</label>
-              <input id="sizeInput" name="size" type="number" min="0" step="0.1" value="20" placeholder="20" />
+              <input id="sizeInput" name="size" type="number" min="0" step="0.1" value="50" placeholder="50" />
 
               <label for="createDensityInput">Density</label>
               <input
@@ -93,7 +101,7 @@
               <button id="addObjectBtn" type="button">Add Object</button>
             </fieldset>
 
-            <fieldset>
+            <fieldset id="selectedObjectEditor" hidden>
               <legend>Edit Selected Object</legend>
 
               <div class="control-form__summary" aria-label="Selected object summary">
@@ -107,15 +115,6 @@
                 <div class="control-form__summary-row"><span>Volume</span><strong id="selectedVolumeValue">-</strong></div>
               </div>
 
-              <label for="selectedGravityInput">Gravity</label>
-              <input id="selectedGravityInput" name="gravity" type="number" step="0.1" placeholder="9.8" />
-
-              <label for="selectedWeightInput">Weight</label>
-              <input id="selectedWeightInput" name="weight" type="number" step="0.1" placeholder="98" />
-
-              <label for="selectedMassInput">Mass</label>
-              <input id="selectedMassInput" name="mass" type="number" min="0" step="0.1" placeholder="10" />
-
               <label for="selectedSizeInput">Size</label>
               <input id="selectedSizeInput" name="size" type="number" min="0" step="0.1" placeholder="20" />
 
@@ -125,7 +124,12 @@
               <label for="selectedVolumeInput">Volume</label>
               <input id="selectedVolumeInput" name="volume" type="number" min="0" step="0.1" placeholder="100" />
 
-              <button id="selectedApplyBtn" type="button" disabled>Apply Changes</button>
+              <div class="control-form__actions">
+                <button id="selectedDuplicateBtn" type="button" disabled>Duplicate</button>
+                <button id="selectedDeleteBtn" type="button" disabled>Delete</button>
+              </div>
+
+              <p class="control-form__hint">Select an object on the canvas to open this editor.</p>
             </fieldset>
           </form>
         </aside>

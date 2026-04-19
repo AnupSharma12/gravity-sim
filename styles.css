@@ -9,7 +9,7 @@
   --muted-text: #52606d;
 
   /* Layout */
-  --max-content-width: 1100px;
+  --max-content-width: 1500px;
 
   /* Spacing */
   --space-1: 0.5rem;
@@ -151,9 +151,12 @@ body {
 
 .sim-stage__canvas {
   display: block;
-  width: 100%;
-  height: min(62vh, 620px);
+  width: min(100%, 1024px);
+  aspect-ratio: 1 / 1;
+  height: auto;
+  max-height: calc(100vh - 220px);
   min-height: 320px;
+  margin-inline: auto;
   background: linear-gradient(180deg, #ffffff 0%, #f7fafc 100%);
   touch-action: none;
 }
@@ -163,6 +166,8 @@ body {
   border-radius: var(--radius-md);
   background: var(--surface);
   padding: var(--space-3);
+  max-height: calc(100vh - 9rem);
+  overflow-y: auto;
 }
 
 .control-panel h2 {
@@ -182,6 +187,46 @@ body {
   padding: var(--space-2);
   display: grid;
   gap: var(--space-1);
+}
+
+.control-form [hidden] {
+  display: none !important;
+}
+
+.control-form__summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-1) var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: #f8fafc;
+}
+
+.control-form__summary-row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-width: 0;
+  font-size: var(--font-size-100);
+}
+
+.control-form__summary-row span {
+  color: var(--muted-text);
+}
+
+.control-form__summary-row strong {
+  color: var(--text);
+  font-weight: var(--font-weight-semibold);
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.control-form__actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2);
 }
 
 .control-form legend {
@@ -302,6 +347,10 @@ body {
   .workspace {
     grid-template-columns: 1fr;
   }
+
+  .control-panel {
+    max-height: none;
+  }
 }
 
 @media (max-width: 600px) {
@@ -316,8 +365,9 @@ body {
   }
 
   .sim-stage__canvas {
-    height: 56vh;
-    min-height: 260px;
+    width: 100%;
+    max-height: calc(100vh - 220px);
+    min-height: 280px;
   }
 
   .sim-toolbar__state {
@@ -327,6 +377,14 @@ body {
 
   .status-bar {
     gap: var(--space-1) var(--space-2);
+  }
+
+  .control-form__summary {
+    grid-template-columns: 1fr;
+  }
+
+  .control-form__actions {
+    grid-template-columns: 1fr;
   }
 
   .toast-area {
