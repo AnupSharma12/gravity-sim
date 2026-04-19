@@ -54,6 +54,10 @@ const OBJECT_SOURCE_OF_TRUTH_FIELDS = Object.freeze([
 const OBJECT_DERIVED_FIELDS = Object.freeze([]);
 const LIVE_SELECTED_APPLY_DELAY_MS = 100;
 const TRAIL_MAX_POINTS = 80;
+const MAX_OBJECT_COUNT = 180;
+const LOW_FPS_THRESHOLD = 24;
+const OVERLOAD_WARNING_COOLDOWN_MS = 5000;
+const INVALID_VALUE_WARNING_COOLDOWN_MS = 2500;
 
 let liveSelectedApplyTimer = null;
 
@@ -197,6 +201,9 @@ const simulationStore = createSimulationStateStore({
   lastDragTimestamp: 0,
   lastMomentumTimestamp: 0,
   fps: 0,
+  overloadWarningActive: false,
+  lastOverloadWarningAt: 0,
+  lastInvalidValueWarningAt: 0,
   toastTimer: null,
 });
 
@@ -559,6 +566,11 @@ function handleDuplicateSelectedObject() {
     return;
   }
 
+  if (appState.objects.length >= MAX_OBJECT_COUNT) {
+    showToast(`Object limit reached (${MAX_OBJECT_COUNT}). Delete an object before duplicating.`, "error");
+    return;
+  }
+
   const radius = getObjectCollisionRadius(selectedObject);
   const worldWidth = Math.max(1, appState.worldWidth || canvas?.clientWidth || 1);
   const worldHeight = Math.max(1, appState.worldHeight || canvas?.clientHeight || 1);
@@ -656,6 +668,41 @@ function findObjectAtPoint(pointX, pointY) {
 
 function clamp(value, minValue, maxValue) {
   return Math.min(maxValue, Math.max(minValue, value));
+}
+
+function toFiniteNumber(value, fallbackValue) {
+  return Number.isFinite(value) ? value : fallbackValue;
+}
+
+function sanitizeObjectForSimulation(object, worldWidth, worldHeight) {
+  const safeObject = applyObjectSourcePatch(object, {
+    position: {
+      x: clamp(toFiniteNumber(object.position?.x, worldWidth / 2), 0, worldWidth),
+      y: clamp(toFiniteNumber(object.position?.y, worldHeight / 2), 0, worldHeight),
+    },
+    velocity: {
+      vx: toFiniteNumber(object.velocity?.vx, 0),
+      vy: toFiniteNumber(object.velocity?.vy, 0),
+    },
+    acceleration: {
+      ax: toFiniteNumber(object.acceleration?.ax, 0),
+      ay: toFiniteNumber(object.acceleration?.ay, 0),
+    },
+    gravity: toFiniteNumber(object.gravity, appState.currentGravity),
+    size: Math.max(0.1, toFiniteNumber(object.size, 20)),
+  });
+
+  const wasCorrected =
+    safeObject.position.x !== object.position?.x ||
+    safeObject.position.y !== object.position?.y ||
+    safeObject.velocity.vx !== object.velocity?.vx ||
+    safeObject.velocity.vy !== object.velocity?.vy ||
+    safeObject.acceleration.ax !== object.acceleration?.ax ||
+    safeObject.acceleration.ay !== object.acceleration?.ay ||
+    safeObject.gravity !== object.gravity ||
+    safeObject.size !== object.size;
+
+  return { safeObject, wasCorrected };
 }
 
 function handleCanvasPointerDown(event) {
@@ -1065,6 +1112,11 @@ function drawObjectTrails(ctx, objects) {
 }
 
 function handleAddObject() {
+  if (appState.objects.length >= MAX_OBJECT_COUNT) {
+    showToast(`Object limit reached (${MAX_OBJECT_COUNT}). Delete an object before adding more.`, "error");
+    return;
+  }
+
   const validation = validateCreateObjectForm();
   if (!validation.ok) {
     showToast(validation.message, "error");
@@ -1092,7 +1144,7 @@ function handleAddObject() {
     trailHistory: createTrailHistorySnapshot(nextObjects, appState.trailHistory),
   });
   updateStatusBar();
-  initSimulationCanvas();
+  drawCurrentCanvasFrame();
   updateRandomSpawnPreview();
   showToast("Object added to simulation.", "success");
 }
@@ -1143,10 +1195,24 @@ function startFpsTracker() {
     const elapsed = now - windowStart;
 
     if (elapsed >= 1000) {
-      simulationStore.update({ fps: Math.round((frameCount * 1000) / elapsed) });
+      const nextFps = Math.round((frameCount * 1000) / elapsed);
+      const isOverloaded = appState.isRunning && (nextFps <= LOW_FPS_THRESHOLD || appState.objects.length >= MAX_OBJECT_COUNT * 0.9);
+      const nowMs = Date.now();
+
+      simulationStore.update({
+        fps: nextFps,
+        overloadWarningActive: isOverloaded,
+      });
+
+      if (isOverloaded && nowMs - appState.lastOverloadWarningAt >= OVERLOAD_WARNING_COOLDOWN_MS) {
+        simulationStore.update({ lastOverloadWarningAt: nowMs });
+        showToast("Performance warning: simulation is overloaded. Reduce object count or pause trails/vectors.", "error");
+      }
+
       frameCount = 0;
       windowStart = now;
       updateStatusBar();
+      updateToolbarStateLabel();
     }
 
     window.requestAnimationFrame(tick);
@@ -1161,7 +1227,8 @@ function updateToolbarStateLabel() {
   }
 
   const stateText = appState.isRunning ? "Running" : "Paused";
-  simStateLabel.textContent = `State: ${stateText} | Steps: ${appState.stepCount} | Speed: ${appState.timeScale.toFixed(2)}x`;
+  const warningText = appState.overloadWarningActive ? " | Warning: Overloaded" : "";
+  simStateLabel.textContent = `State: ${stateText} | Steps: ${appState.stepCount} | Speed: ${appState.timeScale.toFixed(2)}x${warningText}`;
 }
 
 function updateToolbarButtons() {
@@ -1190,7 +1257,7 @@ function simulationTick(timestamp) {
   });
 
   advanceSimulationByDelta(deltaSeconds);
-  initSimulationCanvas();
+  drawCurrentCanvasFrame();
   updateToolbarStateLabel();
 
   simulationStore.update({
@@ -1259,7 +1326,7 @@ function handleReset() {
 function handleStep() {
   advanceSimulationByDelta(1 / 60);
   simulationStore.update({ stepCount: appState.stepCount + 1 });
-  initSimulationCanvas();
+  drawCurrentCanvasFrame();
   updateToolbarStateLabel();
 }
 
@@ -1340,10 +1407,28 @@ function resolveObjectCollisions(objects) {
 
   const restitution = 0.5;
 
-  for (let i = 0; i < resolvedObjects.length; i += 1) {
-    for (let j = i + 1; j < resolvedObjects.length; j += 1) {
-      const objectA = resolvedObjects[i];
-      const objectB = resolvedObjects[j];
+  const broadPhaseEntries = resolvedObjects
+    .map((object, index) => {
+      const radius = getObjectCollisionRadius(object);
+      return {
+        index,
+        minX: object.position.x - radius,
+        maxX: object.position.x + radius,
+      };
+    })
+    .sort((entryA, entryB) => entryA.minX - entryB.minX);
+
+  for (let i = 0; i < broadPhaseEntries.length; i += 1) {
+    const entryA = broadPhaseEntries[i];
+    const objectA = resolvedObjects[entryA.index];
+
+    for (let j = i + 1; j < broadPhaseEntries.length; j += 1) {
+      const entryB = broadPhaseEntries[j];
+      if (entryB.minX > entryA.maxX) {
+        break;
+      }
+
+      const objectB = resolvedObjects[entryB.index];
 
       const dx = objectB.position.x - objectA.position.x;
       const dy = objectB.position.y - objectA.position.y;
@@ -1419,8 +1504,23 @@ function advanceSimulationByDelta(deltaSeconds) {
 
   const worldWidth = Math.max(1, appState.worldWidth || canvas?.clientWidth || 1);
   const worldHeight = Math.max(1, appState.worldHeight || canvas?.clientHeight || 1);
+  let correctedInvalidValues = false;
 
-  const boundedObjects = appState.objects.map((object) => {
+  const sanitizedObjects = appState.objects.map((object) => {
+    const { safeObject, wasCorrected } = sanitizeObjectForSimulation(object, worldWidth, worldHeight);
+    correctedInvalidValues = correctedInvalidValues || wasCorrected;
+    return safeObject;
+  });
+
+  if (correctedInvalidValues) {
+    const nowMs = Date.now();
+    if (nowMs - appState.lastInvalidValueWarningAt >= INVALID_VALUE_WARNING_COOLDOWN_MS) {
+      simulationStore.update({ lastInvalidValueWarningAt: nowMs });
+      showToast("Recovered invalid physics values by clamping objects to safe defaults.", "error");
+    }
+  }
+
+  const boundedObjects = sanitizedObjects.map((object) => {
     const normalizedObject = recalculateDependentValues(object);
 
     if (appState.draggingObjectId && normalizedObject.id === appState.draggingObjectId) {
