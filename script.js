@@ -7,6 +7,9 @@ const pauseBtn = document.getElementById("pauseBtn");
 const resetBtn = document.getElementById("resetBtn");
 const stepBtn = document.getElementById("stepBtn");
 const simStateLabel = document.getElementById("simStateLabel");
+const helpBtn = document.getElementById("helpBtn");
+const helpModal = document.getElementById("helpModal");
+const helpCloseBtn = document.getElementById("helpCloseBtn");
 const gravityInput = document.getElementById("gravityInput");
 const gravitySliderInput = document.getElementById("gravitySliderInput");
 const gravityControlValue = document.getElementById("gravityControlValue");
@@ -22,12 +25,15 @@ const fpsValue = document.getElementById("fpsValue");
 const objectCountValue = document.getElementById("objectCountValue");
 const gravityValue = document.getElementById("gravityValue");
 const selectedObjectValue = document.getElementById("selectedObjectValue");
+const bulkApplyModeInput = document.getElementById("bulkApplyMode");
+const bulkGravityInput = document.getElementById("bulkGravityInput");
 const bulkSizeInput = document.getElementById("bulkSizeInput");
 const bulkApplyBtn = document.getElementById("bulkApplyBtn");
 const selectedTypeValue = document.getElementById("selectedTypeValue");
 const selectedIdValue = document.getElementById("selectedIdValue");
 const selectedSizeValue = document.getElementById("selectedSizeValue");
 const selectedGravityValue = document.getElementById("selectedGravityValue");
+const selectedObjectEditor = document.getElementById("selectedObjectEditor");
 const selectedGravityInput = document.getElementById("selectedGravityInput");
 const selectedSizeInput = document.getElementById("selectedSizeInput");
 const selectedDuplicateBtn = document.getElementById("selectedDuplicateBtn");
@@ -223,6 +229,7 @@ function showToast(message, variant = "info") {
   const toast = document.createElement("div");
   toast.className = `toast toast--${variant}`;
   toast.setAttribute("role", variant === "error" ? "alert" : "status");
+  toast.setAttribute("aria-live", variant === "error" ? "assertive" : "polite");
   toast.textContent = message;
   toastArea.appendChild(toast);
 
@@ -380,7 +387,7 @@ function buildBulkUpdateConfirmation(count, mode) {
 function applyBulkObjectChanges() {
   const objectCount = appState.objects.length;
   if (objectCount === 0) {
-    showToast("Add at least one object before using bulk controls.", "error");
+    showToast("No objects found for bulk edit. Add an object first, then retry bulk changes.", "error");
     return;
   }
 
@@ -397,7 +404,7 @@ function applyBulkObjectChanges() {
 
   const hasAnyInput = [gravityResult, sizeResult].some((result) => result.value !== null);
   if (!hasAnyInput) {
-    showToast("Enter at least one bulk value before applying changes.", "error");
+    showToast("No bulk values entered. Fill Gravity for All or Size Scale, then click Apply To All Objects.", "error");
     return;
   }
 
@@ -435,7 +442,7 @@ function applySelectedObjectChanges(options = {}) {
   const selectedObject = getSelectedObject();
   if (!selectedObject) {
     if (showErrors) {
-      showToast("Select an object before applying edits.", "error");
+      showToast("No object selected. Click or tap an object in the canvas, then apply edits.", "error");
     }
     return false;
   }
@@ -455,7 +462,7 @@ function applySelectedObjectChanges(options = {}) {
 
   if (sizeValue <= 0) {
     if (showErrors) {
-      showToast("Size must be greater than zero.", "error");
+      showToast("Invalid size value. Enter a number greater than 0, for example 20.", "error");
     }
     return false;
   }
@@ -478,7 +485,7 @@ function applySelectedObjectChanges(options = {}) {
   const objectIndex = appState.objects.findIndex((object) => object.id === nextObject.id);
   if (objectIndex < 0) {
     if (showErrors) {
-      showToast("Selected object no longer exists.", "error");
+      showToast("Selected object was removed. Select another object from the canvas and try again.", "error");
     }
     return false;
   }
@@ -544,7 +551,7 @@ function clearSelectedObjectState() {
 function handleDeleteSelectedObject() {
   const selectedObject = getSelectedObject();
   if (!selectedObject) {
-    showToast("Select an object before deleting it.", "error");
+    showToast("No selected object to delete. Select one in the canvas, then press Delete.", "error");
     return;
   }
 
@@ -562,12 +569,12 @@ function handleDeleteSelectedObject() {
 function handleDuplicateSelectedObject() {
   const selectedObject = getSelectedObject();
   if (!selectedObject) {
-    showToast("Select an object before duplicating it.", "error");
+    showToast("No selected object to duplicate. Select one in the canvas, then press Ctrl+D or Duplicate.", "error");
     return;
   }
 
   if (appState.objects.length >= MAX_OBJECT_COUNT) {
-    showToast(`Object limit reached (${MAX_OBJECT_COUNT}). Delete an object before duplicating.`, "error");
+    showToast(`Object limit reached (${MAX_OBJECT_COUNT}). Delete an existing object, then duplicate again.`, "error");
     return;
   }
 
@@ -703,6 +710,150 @@ function sanitizeObjectForSimulation(object, worldWidth, worldHeight) {
     safeObject.size !== object.size;
 
   return { safeObject, wasCorrected };
+}
+
+function isTextEntryElement(element) {
+  if (!element) {
+    return false;
+  }
+
+  const tagName = element.tagName;
+  if (tagName === "INPUT" || tagName === "TEXTAREA" || tagName === "SELECT") {
+    return true;
+  }
+
+  return element.isContentEditable === true;
+}
+
+function selectObjectByIndex(index) {
+  if (!appState.objects.length) {
+    clearSelectedObjectState();
+    updateStatusBar();
+    drawCurrentCanvasFrame();
+    showToast("No objects are available to select. Add one using Create Object.", "error");
+    return;
+  }
+
+  const nextIndex = ((index % appState.objects.length) + appState.objects.length) % appState.objects.length;
+  const selectedObject = appState.objects[nextIndex];
+  simulationStore.update({
+    selectedObjectId: selectedObject.id,
+    selectedObject: `${selectedObject.type} (${selectedObject.id.slice(0, 8)})`,
+  });
+  openSelectedObjectEditor();
+  updateStatusBar();
+  drawCurrentCanvasFrame();
+}
+
+function selectNextObject() {
+  if (!appState.objects.length) {
+    showToast("No objects to select. Add one from the Create Object panel.", "error");
+    return;
+  }
+
+  const currentIndex = appState.objects.findIndex((object) => object.id === appState.selectedObjectId);
+  selectObjectByIndex(currentIndex + 1);
+}
+
+function moveSelectedObjectByKeyboard(deltaX, deltaY) {
+  const selectedObject = getSelectedObject();
+  if (!selectedObject) {
+    showToast("Select an object first. Tip: press N to cycle objects.", "error");
+    return;
+  }
+
+  const objectIndex = appState.objects.findIndex((object) => object.id === selectedObject.id);
+  if (objectIndex < 0) {
+    showToast("Selected object was not found. Select another object and try again.", "error");
+    return;
+  }
+
+  const radius = getObjectCollisionRadius(selectedObject);
+  const worldWidth = Math.max(1, appState.worldWidth || canvas?.clientWidth || 1);
+  const worldHeight = Math.max(1, appState.worldHeight || canvas?.clientHeight || 1);
+
+  const movedObject = applyObjectSourcePatch(selectedObject, {
+    position: {
+      x: clamp(selectedObject.position.x + deltaX, radius, Math.max(radius, worldWidth - radius)),
+      y: clamp(selectedObject.position.y + deltaY, radius, Math.max(radius, worldHeight - radius)),
+    },
+    velocity: { vx: 0, vy: 0 },
+    acceleration: { ax: 0, ay: 0 },
+  });
+
+  const updatedObjects = [...appState.objects];
+  updatedObjects[objectIndex] = movedObject;
+  simulationStore.update({
+    objects: updatedObjects,
+    trailHistory: appState.trailsEnabled ? createTrailHistorySnapshot(updatedObjects, appState.trailHistory) : appState.trailHistory,
+  });
+  updateStatusBar();
+  drawCurrentCanvasFrame();
+}
+
+function openHelpModal() {
+  if (!helpModal || typeof helpModal.showModal !== "function") {
+    return;
+  }
+
+  if (!helpModal.open) {
+    helpModal.showModal();
+  }
+}
+
+function closeHelpModal() {
+  if (!helpModal) {
+    return;
+  }
+
+  if (helpModal.open) {
+    helpModal.close();
+  }
+}
+
+function handleGlobalKeyboardShortcuts(event) {
+  if (isTextEntryElement(event.target)) {
+    return;
+  }
+
+  if (event.key === "h" || event.key === "H") {
+    event.preventDefault();
+    openHelpModal();
+    return;
+  }
+
+  if (event.key === "n" || event.key === "N") {
+    event.preventDefault();
+    selectNextObject();
+    return;
+  }
+
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "d") {
+    event.preventDefault();
+    handleDuplicateSelectedObject();
+    return;
+  }
+
+  if (event.key === "Delete" || event.key === "Backspace") {
+    event.preventDefault();
+    handleDeleteSelectedObject();
+    return;
+  }
+
+  const keyboardStep = event.shiftKey ? 12 : 4;
+  if (event.key === "ArrowLeft") {
+    event.preventDefault();
+    moveSelectedObjectByKeyboard(-keyboardStep, 0);
+  } else if (event.key === "ArrowRight") {
+    event.preventDefault();
+    moveSelectedObjectByKeyboard(keyboardStep, 0);
+  } else if (event.key === "ArrowUp") {
+    event.preventDefault();
+    moveSelectedObjectByKeyboard(0, -keyboardStep);
+  } else if (event.key === "ArrowDown") {
+    event.preventDefault();
+    moveSelectedObjectByKeyboard(0, keyboardStep);
+  }
 }
 
 function handleCanvasPointerDown(event) {
@@ -1113,7 +1264,7 @@ function drawObjectTrails(ctx, objects) {
 
 function handleAddObject() {
   if (appState.objects.length >= MAX_OBJECT_COUNT) {
-    showToast(`Object limit reached (${MAX_OBJECT_COUNT}). Delete an object before adding more.`, "error");
+    showToast(`Object limit reached (${MAX_OBJECT_COUNT}). Remove one object before adding another.`, "error");
     return;
   }
 
@@ -1775,7 +1926,24 @@ if (canvas) {
   canvas.addEventListener("pointermove", handleCanvasPointerMove);
   canvas.addEventListener("pointerup", handleCanvasPointerRelease);
   canvas.addEventListener("pointercancel", handleCanvasPointerRelease);
+  canvas.addEventListener("pointerleave", handleCanvasPointerRelease);
+  canvas.addEventListener("keydown", handleGlobalKeyboardShortcuts);
 }
+
+if (helpBtn) {
+  helpBtn.addEventListener("click", openHelpModal);
+}
+if (helpCloseBtn) {
+  helpCloseBtn.addEventListener("click", closeHelpModal);
+}
+if (helpModal) {
+  helpModal.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    closeHelpModal();
+  });
+}
+
+window.addEventListener("keydown", handleGlobalKeyboardShortcuts);
 
 window.addEventListener("resize", initSimulationCanvas);
 window.addEventListener("load", initSimulationCanvas);
@@ -1806,7 +1974,7 @@ if (velocityVectorsToggleInput) {
 }
 updateRandomSpawnPreview();
 startFpsTracker();
-showToast("Validation messages will appear here.", "info");
+showToast("Ready. Press H for quick help, then use keyboard or touch gestures to interact with objects.", "info");
 
 // Create a ready-to-use model instance template for upcoming object workflows.
 const objectModelTemplate = createPhysicsObject();

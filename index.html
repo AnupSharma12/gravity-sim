@@ -25,6 +25,7 @@
         <button id="pauseBtn" class="sim-toolbar__btn" type="button">Pause</button>
         <button id="resetBtn" class="sim-toolbar__btn" type="button">Reset</button>
         <button id="stepBtn" class="sim-toolbar__btn" type="button">Step</button>
+        <button id="helpBtn" class="sim-toolbar__btn" type="button" aria-haspopup="dialog" aria-controls="helpModal">Help</button>
         <span id="simStateLabel" class="sim-toolbar__state">State: Idle</span>
       </section>
 
@@ -37,9 +38,14 @@
           <canvas
             id="simCanvas"
             class="sim-stage__canvas"
-            role="img"
+            role="application"
+            tabindex="0"
             aria-label="Gravity simulation drawing surface"
+            aria-describedby="canvasInteractionHint"
           ></canvas>
+          <p id="canvasInteractionHint" class="sim-stage__hint">
+            Tap or click to select and drag objects. Keyboard: N selects next object, arrow keys move selected object, Shift with arrows moves faster, Delete removes selected, Ctrl+D duplicates selected, and H opens help.
+          </p>
         </section>
 
         <aside class="control-panel" aria-label="Simulation Settings and Object Controls">
@@ -50,13 +56,13 @@
               <legend>Simulation Settings</legend>
 
               <label for="gravityInput">Global Gravity</label>
-              <input id="gravityInput" name="gravity" type="number" step="0.1" value="9.8" placeholder="9.8" />
-              <input id="gravitySliderInput" name="gravitySlider" type="range" min="0" max="30" step="0.1" value="9.8" />
+              <input id="gravityInput" name="gravity" type="number" step="0.1" value="9.8" placeholder="9.8" aria-describedby="gravityControlValue" />
+              <input id="gravitySliderInput" name="gravitySlider" type="range" min="0" max="30" step="0.1" value="9.8" aria-label="Global gravity slider" aria-describedby="gravityControlValue" />
               <p id="gravityControlValue" class="control-form__hint">Global gravity: 9.80 m/s²</p>
               <p class="control-form__hint">This updates gravity for every object in the scene.</p>
 
               <label for="timeScaleInput">Time Scale</label>
-              <input id="timeScaleInput" name="timeScale" type="range" min="0.25" max="3" step="0.05" value="1" />
+              <input id="timeScaleInput" name="timeScale" type="range" min="0.25" max="3" step="0.05" value="1" aria-label="Simulation time scale slider" aria-describedby="timeScaleValue" />
               <p id="timeScaleValue" class="control-form__hint">Simulation speed: 1.00x</p>
 
               <label class="control-form__toggle" for="collisionToggleInput">
@@ -78,7 +84,7 @@
             <fieldset id="selectedObjectEditor" hidden aria-label="Edit Selected Object">
               <legend>Edit Selected Object</legend>
 
-              <div class="control-form__summary" aria-label="Selected object summary">
+              <div class="control-form__summary" aria-label="Selected object summary" aria-live="polite">
                 <div class="control-form__summary-row"><span>Type</span><strong id="selectedTypeValue">None</strong></div>
                 <div class="control-form__summary-row"><span>ID</span><strong id="selectedIdValue">None</strong></div>
                 <div class="control-form__summary-row"><span>Size</span><strong id="selectedSizeValue">-</strong></div>
@@ -152,6 +158,23 @@
       </section>
 
       <div id="toastArea" class="toast-area" aria-live="polite" aria-atomic="true"></div>
+
+      <dialog id="helpModal" class="help-modal" aria-labelledby="helpModalTitle" aria-describedby="helpModalDescription">
+        <form method="dialog" class="help-modal__content">
+          <h2 id="helpModalTitle">Quick Help</h2>
+          <p id="helpModalDescription" class="help-modal__intro">Use these controls to work faster across desktop and mobile.</p>
+          <ul class="help-modal__list">
+            <li>Tap or click any object in the canvas to select it, then drag to move it.</li>
+            <li>Press N to cycle selection across objects.</li>
+            <li>Use Arrow keys to move the selected object; hold Shift for larger movement.</li>
+            <li>Press Delete to remove the selected object or Ctrl+D to duplicate it.</li>
+            <li>Adjust gravity, time scale, collisions, trails, and vectors from Simulation Settings.</li>
+          </ul>
+          <div class="help-modal__actions">
+            <button id="helpCloseBtn" type="submit">Close</button>
+          </div>
+        </form>
+      </dialog>
     </main>
 
     <script src="script.js"></script>
