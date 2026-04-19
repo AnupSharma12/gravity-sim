@@ -12,6 +12,8 @@ const gravitySliderInput = document.getElementById("gravitySliderInput");
 const gravityControlValue = document.getElementById("gravityControlValue");
 const timeScaleInput = document.getElementById("timeScaleInput");
 const timeScaleValue = document.getElementById("timeScaleValue");
+const collisionToggleInput = document.getElementById("collisionToggleInput");
+const trailsToggleInput = document.getElementById("trailsToggleInput");
 const sizeInput = document.getElementById("sizeInput");
 const randomSpawnToggle = document.getElementById("randomSpawnToggle");
 const randomSpawnPreview = document.getElementById("randomSpawnPreview");
@@ -53,6 +55,7 @@ const OBJECT_SOURCE_OF_TRUTH_FIELDS = Object.freeze([
 
 const OBJECT_DERIVED_FIELDS = Object.freeze([]);
 const LIVE_SELECTED_APPLY_DELAY_MS = 100;
+const TRAIL_MAX_POINTS = 80;
 
 let liveSelectedApplyTimer = null;
 
@@ -181,6 +184,9 @@ const simulationStore = createSimulationStateStore({
   pendingSpawnPosition: { x: 0, y: 0 },
   currentGravity: 9.8,
   timeScale: 1,
+  collisionsEnabled: true,
+  trailsEnabled: false,
+  trailHistory: {},
   selectedObject: "None",
   selectedObjectId: null,
   draggingPointerId: null,
@@ -324,6 +330,40 @@ function applyModeToValue(currentValue, inputValue, mode) {
     return currentValue * inputValue;
   }
   return inputValue;
+}
+
+function createTrailHistorySnapshot(objects, previousTrailHistory) {
+  const nextTrailHistory = {};
+
+  objects.forEach((object) => {
+    const previousPath = Array.isArray(previousTrailHistory[object.id]) ? previousTrailHistory[object.id] : [];
+    const lastPoint = previousPath[previousPath.length - 1];
+    const currentPoint = {
+      x: object.position.x,
+      y: object.position.y,
+    };
+
+    if (!lastPoint) {
+      nextTrailHistory[object.id] = [currentPoint];
+      return;
+    }
+
+    const distance = Math.hypot(currentPoint.x - lastPoint.x, currentPoint.y - lastPoint.y);
+    const nextPath = distance >= 0.5 ? [...previousPath, currentPoint] : [...previousPath];
+
+    if (nextPath.length > TRAIL_MAX_POINTS) {
+      nextPath.splice(0, nextPath.length - TRAIL_MAX_POINTS);
+    }
+
+    nextTrailHistory[object.id] = nextPath;
+  });
+
+  return nextTrailHistory;
+}
+
+function ensureTrailHistoryForObjects(objects) {
+  const nextTrailHistory = createTrailHistorySnapshot(objects, appState.trailHistory);
+  simulationStore.update({ trailHistory: nextTrailHistory });
 }
 
 function buildBulkUpdateConfirmation(count, mode) {
@@ -502,8 +542,10 @@ function handleDeleteSelectedObject() {
     return;
   }
 
+  const remainingObjects = appState.objects.filter((object) => object.id !== selectedObject.id);
   simulationStore.update({
-    objects: appState.objects.filter((object) => object.id !== selectedObject.id),
+    objects: remainingObjects,
+    trailHistory: createTrailHistorySnapshot(remainingObjects, appState.trailHistory),
   });
   clearSelectedObjectState();
   updateStatusBar();
@@ -534,6 +576,7 @@ function handleDuplicateSelectedObject() {
 
   simulationStore.update({
     objects: [...appState.objects, duplicateObject],
+    trailHistory: createTrailHistorySnapshot([...appState.objects, duplicateObject], appState.trailHistory),
     selectedObjectId: duplicateObject.id,
     selectedObject: `${duplicateObject.type} (${duplicateObject.id.slice(0, 8)})`,
   });
@@ -726,6 +769,7 @@ function handleCanvasPointerMove(event) {
 
   simulationStore.update({
     objects: updatedObjects,
+    trailHistory: appState.trailsEnabled ? createTrailHistorySnapshot(updatedObjects, appState.trailHistory) : appState.trailHistory,
     dragVelocity: estimatedVelocity,
     dragMomentumVelocity: nextMomentumVelocity,
     lastDragPoint: point,
@@ -904,6 +948,26 @@ function drawSimulationObjects(ctx, objects) {
   });
 }
 
+function drawObjectTrails(ctx, objects) {
+  objects.forEach((object) => {
+    const path = appState.trailHistory[object.id];
+    if (!Array.isArray(path) || path.length < 2) {
+      return;
+    }
+
+    ctx.save();
+    ctx.strokeStyle = "rgba(15, 118, 110, 0.32)";
+    ctx.lineWidth = object.id === appState.selectedObjectId ? 2 : 1.35;
+    ctx.beginPath();
+    ctx.moveTo(path[0].x, path[0].y);
+    for (let index = 1; index < path.length; index += 1) {
+      ctx.lineTo(path[index].x, path[index].y);
+    }
+    ctx.stroke();
+    ctx.restore();
+  });
+}
+
 function handleAddObject() {
   const validation = validateCreateObjectForm();
   if (!validation.ok) {
@@ -926,7 +990,11 @@ function handleAddObject() {
     color: selectedType === "sphere" ? "#0f766e" : "#0b6b5d",
   });
 
-  simulationStore.update({ objects: [...appState.objects, newObject] });
+  const nextObjects = [...appState.objects, newObject];
+  simulationStore.update({
+    objects: nextObjects,
+    trailHistory: createTrailHistorySnapshot(nextObjects, appState.trailHistory),
+  });
   updateStatusBar();
   initSimulationCanvas();
   updateRandomSpawnPreview();
@@ -1083,6 +1151,7 @@ function handleReset() {
     lastDragPoint: null,
     lastDragTimestamp: 0,
     lastMomentumTimestamp: 0,
+    trailHistory: {},
   });
   stopSimulationLoop();
   initSimulationCanvas();
@@ -1096,6 +1165,24 @@ function handleStep() {
   simulationStore.update({ stepCount: appState.stepCount + 1 });
   initSimulationCanvas();
   updateToolbarStateLabel();
+}
+
+function handleCollisionToggleChange(event) {
+  simulationStore.update({ collisionsEnabled: event.target.checked });
+}
+
+function handleTrailsToggleChange(event) {
+  const enabled = event.target.checked;
+  simulationStore.update({ trailsEnabled: enabled });
+
+  if (!enabled) {
+    simulationStore.update({ trailHistory: {} });
+    drawCurrentCanvasFrame();
+    return;
+  }
+
+  ensureTrailHistoryForObjects(appState.objects);
+  drawCurrentCanvasFrame();
 }
 
 function getObjectCollisionRadius(object) {
@@ -1278,9 +1365,15 @@ function advanceSimulationByDelta(deltaSeconds) {
     return applyWorldBoundsAndFloorCollision(integratedObject, worldWidth, worldHeight);
   });
 
-  const updatedObjects = resolveObjectCollisions(boundedObjects);
+  const updatedObjects = appState.collisionsEnabled ? resolveObjectCollisions(boundedObjects) : boundedObjects;
+  const nextTrailHistory = appState.trailsEnabled
+    ? createTrailHistorySnapshot(updatedObjects, appState.trailHistory)
+    : appState.trailHistory;
 
-  simulationStore.update({ objects: updatedObjects });
+  simulationStore.update({
+    objects: updatedObjects,
+    trailHistory: nextTrailHistory,
+  });
   updateStatusBar();
 }
 
@@ -1370,6 +1463,10 @@ function drawCanvasPlaceholder(ctx, width, height) {
     ctx.stroke();
   }
 
+  if (appState.trailsEnabled) {
+    drawObjectTrails(ctx, appState.objects);
+  }
+
   drawSimulationObjects(ctx, appState.objects);
 }
 
@@ -1436,6 +1533,12 @@ if (timeScaleInput) {
   timeScaleInput.addEventListener("input", handleTimeScaleInputChange);
   timeScaleInput.addEventListener("change", handleTimeScaleInputChange);
 }
+if (collisionToggleInput) {
+  collisionToggleInput.addEventListener("change", handleCollisionToggleChange);
+}
+if (trailsToggleInput) {
+  trailsToggleInput.addEventListener("change", handleTrailsToggleChange);
+}
 if (randomSpawnToggle) {
   randomSpawnToggle.addEventListener("change", handleRandomSpawnToggle);
 }
@@ -1483,6 +1586,12 @@ if (gravityControlValue) {
 }
 if (timeScaleValue) {
   timeScaleValue.textContent = `Simulation speed: ${appState.timeScale.toFixed(2)}x`;
+}
+if (collisionToggleInput) {
+  collisionToggleInput.checked = appState.collisionsEnabled;
+}
+if (trailsToggleInput) {
+  trailsToggleInput.checked = appState.trailsEnabled;
 }
 updateRandomSpawnPreview();
 startFpsTracker();

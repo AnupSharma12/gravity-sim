@@ -58,6 +58,16 @@
               <label for="timeScaleInput">Time Scale</label>
               <input id="timeScaleInput" name="timeScale" type="range" min="0.25" max="3" step="0.05" value="1" />
               <p id="timeScaleValue" class="control-form__hint">Simulation speed: 1.00x</p>
+
+              <label class="control-form__toggle" for="collisionToggleInput">
+                <input id="collisionToggleInput" name="collisionToggle" type="checkbox" checked />
+                <span>Enable collisions</span>
+              </label>
+
+              <label class="control-form__toggle" for="trailsToggleInput">
+                <input id="trailsToggleInput" name="trailsToggle" type="checkbox" />
+                <span>Show trails/paths</span>
+              </label>
             </fieldset>
 
             <fieldset id="selectedObjectEditor" hidden aria-label="Edit Selected Object">
