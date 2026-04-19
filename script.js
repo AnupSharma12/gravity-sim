@@ -15,6 +15,17 @@ const fpsValue = document.getElementById("fpsValue");
 const objectCountValue = document.getElementById("objectCountValue");
 const gravityValue = document.getElementById("gravityValue");
 const selectedObjectValue = document.getElementById("selectedObjectValue");
+const selectedTypeValue = document.getElementById("selectedTypeValue");
+const selectedIdValue = document.getElementById("selectedIdValue");
+const selectedMassValue = document.getElementById("selectedMassValue");
+const selectedSizeValue = document.getElementById("selectedSizeValue");
+const selectedWeightValue = document.getElementById("selectedWeightValue");
+const selectedGravityValue = document.getElementById("selectedGravityValue");
+const selectedDensityValue = document.getElementById("selectedDensityValue");
+const selectedVolumeValue = document.getElementById("selectedVolumeValue");
+const selectedGravityInput = document.getElementById("selectedGravityInput");
+const selectedDensityInput = document.getElementById("selectedDensityInput");
+const selectedVolumeInput = document.getElementById("selectedVolumeInput");
 const toastArea = document.getElementById("toastArea");
 const shapeTypeInput = document.getElementById("shapeType");
 const massInput = document.getElementById("massInput");
@@ -265,6 +276,64 @@ function updateStatusBar() {
   }
   if (selectedObjectValue) {
     selectedObjectValue.textContent = appState.selectedObject;
+  }
+
+  updateSelectedObjectPanel();
+}
+
+function getSelectedObject() {
+  if (!appState.selectedObjectId) {
+    return null;
+  }
+
+  return appState.objects.find((object) => object.id === appState.selectedObjectId) || null;
+}
+
+function formatSelectedNumber(value) {
+  if (!Number.isFinite(value)) {
+    return "-";
+  }
+
+  return Number.isInteger(value) ? String(value) : value.toFixed(2);
+}
+
+function updateSelectedObjectPanel() {
+  const selectedObject = getSelectedObject();
+  const hasSelection = Boolean(selectedObject);
+
+  if (selectedTypeValue) {
+    selectedTypeValue.textContent = hasSelection ? selectedObject.type : "None";
+  }
+  if (selectedIdValue) {
+    selectedIdValue.textContent = hasSelection ? selectedObject.id.slice(0, 8) : "None";
+  }
+  if (selectedMassValue) {
+    selectedMassValue.textContent = hasSelection ? formatSelectedNumber(selectedObject.mass) : "-";
+  }
+  if (selectedSizeValue) {
+    selectedSizeValue.textContent = hasSelection ? formatSelectedNumber(selectedObject.size) : "-";
+  }
+  if (selectedWeightValue) {
+    selectedWeightValue.textContent = hasSelection ? formatSelectedNumber(selectedObject.weight) : "-";
+  }
+  if (selectedGravityValue) {
+    selectedGravityValue.textContent = hasSelection ? formatSelectedNumber(selectedObject.gravity) : "-";
+  }
+  if (selectedDensityValue) {
+    selectedDensityValue.textContent = hasSelection ? formatSelectedNumber(selectedObject.density) : "-";
+  }
+  if (selectedVolumeValue) {
+    selectedVolumeValue.textContent = hasSelection ? formatSelectedNumber(selectedObject.volume) : "-";
+  }
+
+  if (selectedGravityInput) {
+    selectedGravityInput.value = hasSelection ? String(selectedObject.gravity) : "";
+  }
+  if (selectedDensityInput) {
+    selectedDensityInput.value = hasSelection ? String(selectedObject.density) : "";
+  }
+  if (selectedVolumeInput) {
+    selectedVolumeInput.value = hasSelection ? String(selectedObject.volume) : "";
   }
 }
 
