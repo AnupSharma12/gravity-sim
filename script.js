@@ -1456,6 +1456,7 @@ function handleReset() {
   simulationStore.update({
     isRunning: false,
     stepCount: 0,
+    objects: [],
     selectedObject: "None",
     selectedObjectId: null,
     draggingPointerId: null,
