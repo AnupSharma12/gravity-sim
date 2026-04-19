@@ -108,15 +108,24 @@
               </div>
 
               <label for="selectedGravityInput">Gravity</label>
-              <input id="selectedGravityInput" name="gravity" type="number" step="0.1" placeholder="9.8" readonly />
+              <input id="selectedGravityInput" name="gravity" type="number" step="0.1" placeholder="9.8" />
+
+              <label for="selectedWeightInput">Weight</label>
+              <input id="selectedWeightInput" name="weight" type="number" step="0.1" placeholder="98" />
+
+              <label for="selectedMassInput">Mass</label>
+              <input id="selectedMassInput" name="mass" type="number" min="0" step="0.1" placeholder="10" />
+
+              <label for="selectedSizeInput">Size</label>
+              <input id="selectedSizeInput" name="size" type="number" min="0" step="0.1" placeholder="20" />
 
               <label for="selectedDensityInput">Density</label>
-              <input id="selectedDensityInput" name="density" type="number" min="0" step="0.1" placeholder="1.0" readonly />
+              <input id="selectedDensityInput" name="density" type="number" min="0" step="0.1" placeholder="1.0" />
 
               <label for="selectedVolumeInput">Volume</label>
-              <input id="selectedVolumeInput" name="volume" type="number" min="0" step="0.1" placeholder="100" readonly />
+              <input id="selectedVolumeInput" name="volume" type="number" min="0" step="0.1" placeholder="100" />
 
-              <button type="button" disabled>Apply Changes</button>
+              <button id="selectedApplyBtn" type="button" disabled>Apply Changes</button>
             </fieldset>
           </form>
         </aside>

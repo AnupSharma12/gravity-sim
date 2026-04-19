@@ -24,8 +24,12 @@ const selectedGravityValue = document.getElementById("selectedGravityValue");
 const selectedDensityValue = document.getElementById("selectedDensityValue");
 const selectedVolumeValue = document.getElementById("selectedVolumeValue");
 const selectedGravityInput = document.getElementById("selectedGravityInput");
+const selectedWeightInput = document.getElementById("selectedWeightInput");
+const selectedMassInput = document.getElementById("selectedMassInput");
+const selectedSizeInput = document.getElementById("selectedSizeInput");
 const selectedDensityInput = document.getElementById("selectedDensityInput");
 const selectedVolumeInput = document.getElementById("selectedVolumeInput");
+const selectedApplyBtn = document.getElementById("selectedApplyBtn");
 const toastArea = document.getElementById("toastArea");
 const shapeTypeInput = document.getElementById("shapeType");
 const massInput = document.getElementById("massInput");
@@ -297,6 +301,153 @@ function formatSelectedNumber(value) {
   return Number.isInteger(value) ? String(value) : value.toFixed(2);
 }
 
+function setInputValueIfNotFocused(inputElement, value) {
+  if (!inputElement) {
+    return;
+  }
+
+  if (document.activeElement === inputElement) {
+    return;
+  }
+
+  inputElement.value = value;
+}
+
+function hasValueChanged(nextValue, currentValue) {
+  if (!Number.isFinite(nextValue) || !Number.isFinite(currentValue)) {
+    return false;
+  }
+
+  return Math.abs(nextValue - currentValue) > 0.000001;
+}
+
+function parseSelectedInputNumber(inputElement, label) {
+  if (!inputElement) {
+    return { ok: false, message: `${label} input not found.` };
+  }
+
+  const value = Number.parseFloat(inputElement.value);
+  if (!Number.isFinite(value)) {
+    return { ok: false, message: `${label} must be a valid number.` };
+  }
+
+  return { ok: true, value };
+}
+
+function applySelectedObjectChanges() {
+  const selectedObject = getSelectedObject();
+  if (!selectedObject) {
+    showToast("Select an object before applying edits.", "error");
+    return;
+  }
+
+  const gravityResult = parseSelectedInputNumber(selectedGravityInput, "Gravity");
+  const weightResult = parseSelectedInputNumber(selectedWeightInput, "Weight");
+  const massResult = parseSelectedInputNumber(selectedMassInput, "Mass");
+  const sizeResult = parseSelectedInputNumber(selectedSizeInput, "Size");
+  const densityResult = parseSelectedInputNumber(selectedDensityInput, "Density");
+  const volumeResult = parseSelectedInputNumber(selectedVolumeInput, "Volume");
+
+  const parseResults = [gravityResult, weightResult, massResult, sizeResult, densityResult, volumeResult];
+  const parseError = parseResults.find((result) => !result.ok);
+  if (parseError) {
+    showToast(parseError.message, "error");
+    return;
+  }
+
+  const gravityValue = gravityResult.value;
+  const weightValue = weightResult.value;
+  const massValue = massResult.value;
+  const sizeValue = sizeResult.value;
+  const densityValue = densityResult.value;
+  const volumeValue = volumeResult.value;
+
+  if (massValue <= 0) {
+    showToast("Mass must be greater than zero.", "error");
+    return;
+  }
+  if (sizeValue <= 0) {
+    showToast("Size must be greater than zero.", "error");
+    return;
+  }
+  if (volumeValue <= 0) {
+    showToast("Volume must be greater than zero.", "error");
+    return;
+  }
+  if (densityValue < 0) {
+    showToast("Density cannot be negative.", "error");
+    return;
+  }
+
+  const gravityChanged = hasValueChanged(gravityValue, selectedObject.gravity);
+  const weightChanged = hasValueChanged(weightValue, selectedObject.weight);
+  const massChanged = hasValueChanged(massValue, selectedObject.mass);
+  const sizeChanged = hasValueChanged(sizeValue, selectedObject.size);
+  const densityChanged = hasValueChanged(densityValue, selectedObject.density);
+  const volumeChanged = hasValueChanged(volumeValue, selectedObject.volume);
+
+  if (!gravityChanged && !weightChanged && !massChanged && !sizeChanged && !densityChanged && !volumeChanged) {
+    showToast("No selected-object values changed.", "info");
+    return;
+  }
+
+  let nextObject = selectedObject;
+
+  if (gravityChanged) {
+    nextObject = applyObjectSourcePatch(nextObject, { gravity: gravityValue });
+  }
+  if (massChanged) {
+    nextObject = applyObjectSourcePatch(nextObject, { mass: massValue });
+  }
+  if (sizeChanged) {
+    nextObject = applyObjectSourcePatch(nextObject, { size: sizeValue });
+  }
+
+  if (volumeChanged && !sizeChanged) {
+    const sizeFromVolume = calculateSizeFromVolume(nextObject.type, volumeValue);
+    if (!Number.isFinite(sizeFromVolume) || sizeFromVolume <= 0) {
+      showToast("Volume produced an invalid size.", "error");
+      return;
+    }
+    nextObject = applyObjectSourcePatch(nextObject, { size: sizeFromVolume });
+  }
+
+  if (weightChanged && !massChanged) {
+    if (Math.abs(nextObject.gravity) < 0.000001) {
+      showToast("Cannot derive mass from weight when gravity is zero.", "error");
+      return;
+    }
+    const massFromWeight = weightValue / nextObject.gravity;
+    if (!Number.isFinite(massFromWeight) || massFromWeight <= 0) {
+      showToast("Weight and gravity produced an invalid mass.", "error");
+      return;
+    }
+    nextObject = applyObjectSourcePatch(nextObject, { mass: massFromWeight });
+  }
+
+  if (densityChanged && !massChanged) {
+    const massFromDensity = densityValue * nextObject.volume;
+    if (!Number.isFinite(massFromDensity) || massFromDensity <= 0) {
+      showToast("Density and volume produced an invalid mass.", "error");
+      return;
+    }
+    nextObject = applyObjectSourcePatch(nextObject, { mass: massFromDensity });
+  }
+
+  const objectIndex = appState.objects.findIndex((object) => object.id === nextObject.id);
+  if (objectIndex < 0) {
+    showToast("Selected object no longer exists.", "error");
+    return;
+  }
+
+  const updatedObjects = [...appState.objects];
+  updatedObjects[objectIndex] = nextObject;
+  simulationStore.update({ objects: updatedObjects });
+  updateStatusBar();
+  drawCurrentCanvasFrame();
+  showToast("Selected object updated.", "success");
+}
+
 function updateSelectedObjectPanel() {
   const selectedObject = getSelectedObject();
   const hasSelection = Boolean(selectedObject);
@@ -326,15 +477,16 @@ function updateSelectedObjectPanel() {
     selectedVolumeValue.textContent = hasSelection ? formatSelectedNumber(selectedObject.volume) : "-";
   }
 
-  if (selectedGravityInput) {
-    selectedGravityInput.value = hasSelection ? String(selectedObject.gravity) : "";
+  if (selectedApplyBtn) {
+    selectedApplyBtn.disabled = !hasSelection;
   }
-  if (selectedDensityInput) {
-    selectedDensityInput.value = hasSelection ? String(selectedObject.density) : "";
-  }
-  if (selectedVolumeInput) {
-    selectedVolumeInput.value = hasSelection ? String(selectedObject.volume) : "";
-  }
+
+  setInputValueIfNotFocused(selectedGravityInput, hasSelection ? String(selectedObject.gravity) : "");
+  setInputValueIfNotFocused(selectedWeightInput, hasSelection ? String(selectedObject.weight) : "");
+  setInputValueIfNotFocused(selectedMassInput, hasSelection ? String(selectedObject.mass) : "");
+  setInputValueIfNotFocused(selectedSizeInput, hasSelection ? String(selectedObject.size) : "");
+  setInputValueIfNotFocused(selectedDensityInput, hasSelection ? String(selectedObject.density) : "");
+  setInputValueIfNotFocused(selectedVolumeInput, hasSelection ? String(selectedObject.volume) : "");
 }
 
 function getCanvasRelativePoint(event) {
@@ -1185,6 +1337,9 @@ if (sizeInput) {
 }
 if (addObjectBtn) {
   addObjectBtn.addEventListener("click", handleAddObject);
+}
+if (selectedApplyBtn) {
+  selectedApplyBtn.addEventListener("click", applySelectedObjectChanges);
 }
 if (canvas) {
   canvas.addEventListener("pointerdown", handleCanvasPointerDown);
