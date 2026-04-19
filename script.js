@@ -15,28 +15,21 @@ const fpsValue = document.getElementById("fpsValue");
 const objectCountValue = document.getElementById("objectCountValue");
 const gravityValue = document.getElementById("gravityValue");
 const selectedObjectValue = document.getElementById("selectedObjectValue");
+const bulkApplyModeInput = document.getElementById("bulkApplyMode");
+const bulkGravityInput = document.getElementById("bulkGravityInput");
+const bulkSizeInput = document.getElementById("bulkSizeInput");
+const bulkApplyBtn = document.getElementById("bulkApplyBtn");
 const selectedTypeValue = document.getElementById("selectedTypeValue");
 const selectedIdValue = document.getElementById("selectedIdValue");
-const selectedMassValue = document.getElementById("selectedMassValue");
 const selectedSizeValue = document.getElementById("selectedSizeValue");
-const selectedWeightValue = document.getElementById("selectedWeightValue");
 const selectedGravityValue = document.getElementById("selectedGravityValue");
-const selectedDensityValue = document.getElementById("selectedDensityValue");
-const selectedVolumeValue = document.getElementById("selectedVolumeValue");
 const selectedObjectEditor = document.getElementById("selectedObjectEditor");
 const selectedGravityInput = document.getElementById("selectedGravityInput");
-const selectedWeightInput = document.getElementById("selectedWeightInput");
-const selectedMassInput = document.getElementById("selectedMassInput");
 const selectedSizeInput = document.getElementById("selectedSizeInput");
-const selectedDensityInput = document.getElementById("selectedDensityInput");
-const selectedVolumeInput = document.getElementById("selectedVolumeInput");
 const selectedDuplicateBtn = document.getElementById("selectedDuplicateBtn");
 const selectedDeleteBtn = document.getElementById("selectedDeleteBtn");
 const toastArea = document.getElementById("toastArea");
 const shapeTypeInput = document.getElementById("shapeType");
-const massInput = document.getElementById("massInput");
-const createDensityInput = document.getElementById("createDensityInput");
-const createVolumeInput = document.getElementById("createVolumeInput");
 const createGravityInput = document.getElementById("createGravityInput");
 const addObjectBtn = document.getElementById("addObjectBtn");
 
@@ -49,13 +42,12 @@ const OBJECT_SOURCE_OF_TRUTH_FIELDS = Object.freeze([
   "velocity",
   "acceleration",
   "gravity",
-  "mass",
   "size",
   "color",
   "locked",
 ]);
 
-const OBJECT_DERIVED_FIELDS = Object.freeze(["weight", "density", "volume"]);
+const OBJECT_DERIVED_FIELDS = Object.freeze([]);
 const LIVE_SELECTED_APPLY_DELAY_MS = 100;
 
 let liveSelectedApplyTimer = null;
@@ -68,11 +60,7 @@ let liveSelectedApplyTimer = null;
  * @property {{vx: number, vy: number}} velocity
  * @property {{ax: number, ay: number}} acceleration
  * @property {number} gravity
- * @property {number} mass
- * @property {number} weight
  * @property {number} size
- * @property {number} density
- * @property {number} volume
  * @property {string} color
  * @property {boolean} locked
  */
@@ -84,40 +72,8 @@ function generateObjectId() {
   return `obj-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
 }
 
-function calculateVolume(type, size) {
-  if (type === "sphere") {
-    const radius = size / 2;
-    return (4 / 3) * Math.PI * radius * radius * radius;
-  }
-  return size * size * size;
-}
-
-function calculateWeight(mass, gravity) {
-  return mass * gravity;
-}
-
-function calculateDensity(mass, volume) {
-  if (volume <= 0) {
-    return 0;
-  }
-  return mass / volume;
-}
-
-function calculateGravityForce(mass, gravity) {
-  return mass * gravity;
-}
-
 function recalculateDependentValues(object) {
-  const volume = calculateVolume(object.type, object.size);
-  const weight = calculateWeight(object.mass, object.gravity);
-  const density = calculateDensity(object.mass, volume);
-
-  return {
-    ...object,
-    volume,
-    weight,
-    density,
-  };
+  return object;
 }
 
 /**
@@ -155,10 +111,6 @@ function createPhysicsObject(overrides = {}) {
   const type = SHAPE_TYPES.includes(overrides.type) ? overrides.type : "cube";
   const size = Number.isFinite(overrides.size) ? Math.max(0.1, overrides.size) : 50;
   const gravity = Number.isFinite(overrides.gravity) ? overrides.gravity : 9.8;
-  const mass = Number.isFinite(overrides.mass) ? Math.max(0.1, overrides.mass) : 10;
-  const volume = Number.isFinite(overrides.volume) ? Math.max(0.001, overrides.volume) : calculateVolume(type, size);
-  const density = Number.isFinite(overrides.density) ? Math.max(0, overrides.density) : calculateDensity(mass, volume);
-  const weight = Number.isFinite(overrides.weight) ? overrides.weight : calculateWeight(mass, gravity);
 
   const createdObject = {
     id: overrides.id || generateObjectId(),
@@ -176,11 +128,7 @@ function createPhysicsObject(overrides = {}) {
       ay: Number.isFinite(overrides.acceleration?.ay) ? overrides.acceleration.ay : 0,
     },
     gravity,
-    mass,
-    weight,
     size,
-    density,
-    volume,
     color: overrides.color || "#0f766e",
     locked: Boolean(overrides.locked),
   };
@@ -341,6 +289,95 @@ function parseSelectedInputNumber(inputElement, label) {
   return { ok: true, value };
 }
 
+function parseBulkInputNumber(inputElement, label) {
+  if (!inputElement) {
+    return { ok: true, value: null };
+  }
+
+  const rawValue = inputElement.value.trim();
+  if (rawValue === "") {
+    return { ok: true, value: null };
+  }
+
+  const parsedValue = Number.parseFloat(rawValue);
+  if (!Number.isFinite(parsedValue)) {
+    return { ok: false, message: `${label} must be a valid number.` };
+  }
+
+  return { ok: true, value: parsedValue };
+}
+
+function applyModeToValue(currentValue, inputValue, mode) {
+  if (!Number.isFinite(currentValue) || !Number.isFinite(inputValue)) {
+    return currentValue;
+  }
+
+  if (mode === "add") {
+    return currentValue + inputValue;
+  }
+  if (mode === "multiply") {
+    return currentValue * inputValue;
+  }
+  return inputValue;
+}
+
+function buildBulkUpdateConfirmation(count, mode) {
+  const modeLabel = mode === "add" ? "add the entered deltas to" : mode === "multiply" ? "multiply the current values on" : "replace values on";
+  return `Apply bulk changes to ${count} objects and ${modeLabel} the matching fields?`;
+}
+
+function applyBulkObjectChanges() {
+  const objectCount = appState.objects.length;
+  if (objectCount === 0) {
+    showToast("Add at least one object before using bulk controls.", "error");
+    return;
+  }
+
+  const mode = bulkApplyModeInput?.value === "add" ? "add" : bulkApplyModeInput?.value === "multiply" ? "multiply" : "replace";
+  const gravityResult = parseBulkInputNumber(bulkGravityInput, "Gravity for all");
+  const sizeResult = parseBulkInputNumber(bulkSizeInput, "Size scale");
+
+  const parseResults = [gravityResult, sizeResult];
+  const parseError = parseResults.find((result) => !result.ok);
+  if (parseError) {
+    showToast(parseError.message, "error");
+    return;
+  }
+
+  const hasAnyInput = [gravityResult, sizeResult].some((result) => result.value !== null);
+  if (!hasAnyInput) {
+    showToast("Enter at least one bulk value before applying changes.", "error");
+    return;
+  }
+
+  if (!window.confirm(buildBulkUpdateConfirmation(objectCount, mode))) {
+    return;
+  }
+
+  const updatedObjects = appState.objects.map((object) => {
+    let nextObject = { ...object };
+
+    if (gravityResult.value !== null) {
+      nextObject = applyObjectSourcePatch(nextObject, {
+        gravity: applyModeToValue(nextObject.gravity, gravityResult.value, mode),
+      });
+    }
+
+    if (sizeResult.value !== null) {
+      nextObject = applyObjectSourcePatch(nextObject, {
+        size: Math.max(0.1, applyModeToValue(nextObject.size, sizeResult.value, mode)),
+      });
+    }
+
+    return recalculateDependentValues(nextObject);
+  });
+
+  simulationStore.update({ objects: updatedObjects });
+  updateStatusBar();
+  drawCurrentCanvasFrame();
+  showToast(`Updated ${objectCount} objects.`, "success");
+}
+
 function applySelectedObjectChanges(options = {}) {
   const { showErrors = true, showSuccess = true, showNoChange = true } = options;
 
@@ -353,10 +390,8 @@ function applySelectedObjectChanges(options = {}) {
   }
 
   const sizeResult = parseSelectedInputNumber(selectedSizeInput, "Size");
-  const densityResult = parseSelectedInputNumber(selectedDensityInput, "Density");
-  const volumeResult = parseSelectedInputNumber(selectedVolumeInput, "Volume");
 
-  const parseResults = [sizeResult, densityResult, volumeResult];
+  const parseResults = [sizeResult];
   const parseError = parseResults.find((result) => !result.ok);
   if (parseError) {
     if (showErrors) {
@@ -366,8 +401,6 @@ function applySelectedObjectChanges(options = {}) {
   }
 
   const sizeValue = sizeResult.value;
-  const densityValue = densityResult.value;
-  const volumeValue = volumeResult.value;
 
   if (sizeValue <= 0) {
     if (showErrors) {
@@ -375,24 +408,10 @@ function applySelectedObjectChanges(options = {}) {
     }
     return false;
   }
-  if (volumeValue <= 0) {
-    if (showErrors) {
-      showToast("Volume must be greater than zero.", "error");
-    }
-    return false;
-  }
-  if (densityValue < 0) {
-    if (showErrors) {
-      showToast("Density cannot be negative.", "error");
-    }
-    return false;
-  }
 
   const sizeChanged = hasValueChanged(sizeValue, selectedObject.size);
-  const densityChanged = hasValueChanged(densityValue, selectedObject.density);
-  const volumeChanged = hasValueChanged(volumeValue, selectedObject.volume);
 
-  if (!sizeChanged && !densityChanged && !volumeChanged) {
+  if (!sizeChanged) {
     if (showNoChange) {
       showToast("No selected-object values changed.", "info");
     }
@@ -403,28 +422,6 @@ function applySelectedObjectChanges(options = {}) {
 
   if (sizeChanged) {
     nextObject = applyObjectSourcePatch(nextObject, { size: sizeValue });
-  }
-
-  if (volumeChanged && !sizeChanged) {
-    const sizeFromVolume = calculateSizeFromVolume(nextObject.type, volumeValue);
-    if (!Number.isFinite(sizeFromVolume) || sizeFromVolume <= 0) {
-      if (showErrors) {
-        showToast("Volume produced an invalid size.", "error");
-      }
-      return false;
-    }
-    nextObject = applyObjectSourcePatch(nextObject, { size: sizeFromVolume });
-  }
-
-  if (densityChanged) {
-    const massFromDensity = densityValue * nextObject.volume;
-    if (!Number.isFinite(massFromDensity) || massFromDensity <= 0) {
-      if (showErrors) {
-        showToast("Density and volume produced an invalid mass.", "error");
-      }
-      return false;
-    }
-    nextObject = applyObjectSourcePatch(nextObject, { mass: massFromDensity });
   }
 
   const objectIndex = appState.objects.findIndex((object) => object.id === nextObject.id);
@@ -462,6 +459,22 @@ function scheduleLiveSelectedObjectApply() {
   }, LIVE_SELECTED_APPLY_DELAY_MS);
 }
 
+function openSelectedObjectEditor() {
+  if (!selectedObjectEditor) {
+    return;
+  }
+
+  selectedObjectEditor.hidden = false;
+}
+
+function closeSelectedObjectEditor() {
+  if (!selectedObjectEditor) {
+    return;
+  }
+
+  selectedObjectEditor.hidden = true;
+}
+
 function clearSelectedObjectState() {
   simulationStore.update({
     selectedObjectId: null,
@@ -474,6 +487,7 @@ function clearSelectedObjectState() {
     lastDragTimestamp: 0,
     lastMomentumTimestamp: 0,
   });
+  closeSelectedObjectEditor();
 }
 
 function handleDeleteSelectedObject() {
@@ -518,6 +532,7 @@ function handleDuplicateSelectedObject() {
     selectedObjectId: duplicateObject.id,
     selectedObject: `${duplicateObject.type} (${duplicateObject.id.slice(0, 8)})`,
   });
+  openSelectedObjectEditor();
   updateStatusBar();
   drawCurrentCanvasFrame();
   showToast("Selected object duplicated.", "success");
@@ -533,28 +548,13 @@ function updateSelectedObjectPanel() {
   if (selectedIdValue) {
     selectedIdValue.textContent = hasSelection ? selectedObject.id.slice(0, 8) : "None";
   }
-  if (selectedMassValue) {
-    selectedMassValue.textContent = hasSelection ? formatSelectedNumber(selectedObject.mass) : "-";
-  }
   if (selectedSizeValue) {
     selectedSizeValue.textContent = hasSelection ? formatSelectedNumber(selectedObject.size) : "-";
-  }
-  if (selectedWeightValue) {
-    selectedWeightValue.textContent = hasSelection ? formatSelectedNumber(selectedObject.weight) : "-";
   }
   if (selectedGravityValue) {
     selectedGravityValue.textContent = hasSelection ? formatSelectedNumber(selectedObject.gravity) : "-";
   }
-  if (selectedDensityValue) {
-    selectedDensityValue.textContent = hasSelection ? formatSelectedNumber(selectedObject.density) : "-";
-  }
-  if (selectedVolumeValue) {
-    selectedVolumeValue.textContent = hasSelection ? formatSelectedNumber(selectedObject.volume) : "-";
-  }
 
-  if (selectedObjectEditor) {
-    selectedObjectEditor.hidden = !hasSelection;
-  }
   if (selectedDuplicateBtn) {
     selectedDuplicateBtn.disabled = !hasSelection;
   }
@@ -563,8 +563,6 @@ function updateSelectedObjectPanel() {
   }
 
   setInputValueIfNotFocused(selectedSizeInput, hasSelection ? String(selectedObject.size) : "");
-  setInputValueIfNotFocused(selectedDensityInput, hasSelection ? String(selectedObject.density) : "");
-  setInputValueIfNotFocused(selectedVolumeInput, hasSelection ? String(selectedObject.volume) : "");
 }
 
 function getCanvasRelativePoint(event) {
@@ -624,6 +622,7 @@ function handleCanvasPointerDown(event) {
       lastDragTimestamp: 0,
       lastMomentumTimestamp: 0,
     });
+    closeSelectedObjectEditor();
     updateStatusBar();
     return;
   }
@@ -648,6 +647,7 @@ function handleCanvasPointerDown(event) {
     lastDragTimestamp: event.timeStamp,
     lastMomentumTimestamp: event.timeStamp,
   });
+  openSelectedObjectEditor();
   drawCurrentCanvasFrame();
   updateStatusBar();
 }
@@ -785,14 +785,6 @@ function parseOptionalNumber(inputElement) {
   return Number.isFinite(parsedValue) ? parsedValue : Number.NaN;
 }
 
-function calculateSizeFromVolume(type, volume) {
-  if (type === "sphere") {
-    const radius = Math.cbrt((3 * volume) / (4 * Math.PI));
-    return radius * 2;
-  }
-  return Math.cbrt(volume);
-}
-
 function getRandomSpawnPositionForSize(size) {
   const worldWidth = Math.max(1, appState.worldWidth || canvas?.clientWidth || 1);
   const worldHeight = Math.max(1, appState.worldHeight || canvas?.clientHeight || 1);
@@ -842,26 +834,13 @@ function handleRandomSpawnToggle(event) {
 }
 
 function validateCreateObjectForm() {
-  const parsedMass = parseOptionalNumber(massInput);
   const parsedSize = parseOptionalNumber(sizeInput);
-  const density = parseOptionalNumber(createDensityInput);
-  const volume = parseOptionalNumber(createVolumeInput);
   const gravity = parseOptionalNumber(createGravityInput);
 
-  const mass = parsedMass === null ? 10 : parsedMass;
   const size = parsedSize === null ? 50 : parsedSize;
 
-  if (!Number.isFinite(mass) || mass <= 0) {
-    return { ok: false, message: "Mass must be a positive number." };
-  }
   if (!Number.isFinite(size) || size <= 0) {
     return { ok: false, message: "Size must be a positive number." };
-  }
-  if (density !== null && (!Number.isFinite(density) || density < 0)) {
-    return { ok: false, message: "Density cannot be negative." };
-  }
-  if (volume !== null && (!Number.isFinite(volume) || volume <= 0)) {
-    return { ok: false, message: "Volume must be greater than zero." };
   }
   if (gravity !== null && !Number.isFinite(gravity)) {
     return { ok: false, message: "Gravity must be a valid number." };
@@ -870,10 +849,7 @@ function validateCreateObjectForm() {
   return {
     ok: true,
     values: {
-      mass,
       size,
-      density,
-      volume,
       gravity: gravity ?? appState.currentGravity,
     },
   };
@@ -931,22 +907,7 @@ function handleAddObject() {
   }
 
   const selectedType = SHAPE_TYPES.includes(shapeTypeInput?.value) ? shapeTypeInput.value : "cube";
-
-  let effectiveSize = validation.values.size;
-  if (validation.values.volume !== null) {
-    effectiveSize = calculateSizeFromVolume(selectedType, validation.values.volume);
-  }
-
-  let effectiveMass = validation.values.mass;
-  if (validation.values.density !== null) {
-    const effectiveVolume = validation.values.volume ?? calculateVolume(selectedType, effectiveSize);
-    effectiveMass = validation.values.density * effectiveVolume;
-  }
-
-  if (!Number.isFinite(effectiveMass) || effectiveMass <= 0) {
-    showToast("Mass must be positive after applying density/volume values.", "error");
-    return;
-  }
+  const effectiveSize = validation.values.size;
 
   const spawnPosition = appState.randomSpawnEnabled
     ? getRandomSpawnPositionForSize(effectiveSize)
@@ -954,7 +915,6 @@ function handleAddObject() {
 
   const newObject = createPhysicsObject({
     type: selectedType,
-    mass: effectiveMass,
     size: effectiveSize,
     gravity: validation.values.gravity,
     position: spawnPosition,
@@ -1139,6 +1099,10 @@ function getObjectCollisionRadius(object) {
   return Math.max(0.1, object.size / 2);
 }
 
+function getCollisionInertiaProxy(object) {
+  return Math.max(0.1, object.size * object.size);
+}
+
 function applyWorldBoundsAndFloorCollision(object, worldWidth, worldHeight) {
   const radius = getObjectCollisionRadius(object);
   const restitution = 0.6;
@@ -1204,16 +1168,16 @@ function resolveObjectCollisions(objects) {
       const normalY = dy / distance;
       const overlap = minDistance - distance;
 
-      const invMassA = objectA.locked ? 0 : 1 / Math.max(objectA.mass, 0.0001);
-      const invMassB = objectB.locked ? 0 : 1 / Math.max(objectB.mass, 0.0001);
-      const invMassTotal = invMassA + invMassB;
+      const inverseInertiaA = objectA.locked ? 0 : 1 / getCollisionInertiaProxy(objectA);
+      const inverseInertiaB = objectB.locked ? 0 : 1 / getCollisionInertiaProxy(objectB);
+      const inverseInertiaTotal = inverseInertiaA + inverseInertiaB;
 
-      if (invMassTotal <= 0) {
+      if (inverseInertiaTotal <= 0) {
         continue;
       }
 
-      const correctionA = (overlap * invMassA) / invMassTotal;
-      const correctionB = (overlap * invMassB) / invMassTotal;
+      const correctionA = (overlap * inverseInertiaA) / inverseInertiaTotal;
+      const correctionB = (overlap * inverseInertiaB) / inverseInertiaTotal;
 
       if (!objectA.locked) {
         objectA.position.x -= normalX * correctionA;
@@ -1232,17 +1196,17 @@ function resolveObjectCollisions(objects) {
         continue;
       }
 
-      const impulseScalar = (-(1 + restitution) * velocityAlongNormal) / invMassTotal;
+      const impulseScalar = (-(1 + restitution) * velocityAlongNormal) / inverseInertiaTotal;
       const impulseX = impulseScalar * normalX;
       const impulseY = impulseScalar * normalY;
 
       if (!objectA.locked) {
-        objectA.velocity.vx -= impulseX * invMassA;
-        objectA.velocity.vy -= impulseY * invMassA;
+        objectA.velocity.vx -= impulseX * inverseInertiaA;
+        objectA.velocity.vy -= impulseY * inverseInertiaA;
       }
       if (!objectB.locked) {
-        objectB.velocity.vx += impulseX * invMassB;
-        objectB.velocity.vy += impulseY * invMassB;
+        objectB.velocity.vx += impulseX * inverseInertiaB;
+        objectB.velocity.vy += impulseY * inverseInertiaB;
       }
     }
   }
@@ -1283,9 +1247,7 @@ function advanceSimulationByDelta(deltaSeconds) {
 
     const ax = Number.isFinite(normalizedObject.acceleration.ax) ? normalizedObject.acceleration.ax : 0;
     const baseAy = Number.isFinite(normalizedObject.acceleration.ay) ? normalizedObject.acceleration.ay : 0;
-    const safeMass = Math.max(normalizedObject.mass, 0.0001);
-    const gravityForce = calculateGravityForce(safeMass, normalizedObject.gravity);
-    const gravityAcceleration = gravityForce / safeMass;
+    const gravityAcceleration = Number.isFinite(normalizedObject.gravity) ? normalizedObject.gravity : 0;
     const ay = baseAy + gravityAcceleration;
 
     const nextVx = normalizedObject.velocity.vx + ax * deltaSeconds;
@@ -1433,6 +1395,9 @@ if (sizeInput) {
 if (addObjectBtn) {
   addObjectBtn.addEventListener("click", handleAddObject);
 }
+if (bulkApplyBtn) {
+  bulkApplyBtn.addEventListener("click", applyBulkObjectChanges);
+}
 if (selectedDuplicateBtn) {
   selectedDuplicateBtn.addEventListener("click", handleDuplicateSelectedObject);
 }
@@ -1440,15 +1405,9 @@ if (selectedDeleteBtn) {
   selectedDeleteBtn.addEventListener("click", handleDeleteSelectedObject);
 }
 
-[selectedSizeInput, selectedDensityInput, selectedVolumeInput].forEach(
-  (inputElement) => {
-    if (!inputElement) {
-      return;
-    }
-
-    inputElement.addEventListener("input", scheduleLiveSelectedObjectApply);
-  }
-);
+if (selectedSizeInput) {
+  selectedSizeInput.addEventListener("input", scheduleLiveSelectedObjectApply);
+}
 
 if (canvas) {
   canvas.addEventListener("pointerdown", handleCanvasPointerDown);

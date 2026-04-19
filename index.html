@@ -3,13 +3,13 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="Interactive gravity simulator where users create objects and tune mass, size, density, volume, and gravity." />
-    <meta name="keywords" content="gravity simulator, physics simulation, html canvas, mass, density, volume" />
+    <meta name="description" content="Interactive gravity simulator where users create objects and tune size and gravity." />
+    <meta name="keywords" content="gravity simulator, physics simulation, html canvas, size, gravity" />
     <meta name="author" content="Gravity Sim Team" />
     <meta name="theme-color" content="#f4f6f8" />
     <meta name="robots" content="index,follow" />
     <meta property="og:title" content="Gravity Simulator" />
-    <meta property="og:description" content="Build and test object physics with adjustable gravity, mass, size, density, and volume." />
+    <meta property="og:description" content="Build and test object physics with adjustable gravity and size." />
     <meta property="og:type" content="website" />
     <title>Gravity Simulator</title>
     <link rel="canonical" href="/" />
@@ -54,6 +54,27 @@
               <p class="control-form__hint">This updates gravity for every object in the scene.</p>
             </fieldset>
 
+            <fieldset id="selectedObjectEditor" hidden aria-label="Edit Selected Object">
+              <legend>Edit Selected Object</legend>
+
+              <div class="control-form__summary" aria-label="Selected object summary">
+                <div class="control-form__summary-row"><span>Type</span><strong id="selectedTypeValue">None</strong></div>
+                <div class="control-form__summary-row"><span>ID</span><strong id="selectedIdValue">None</strong></div>
+                <div class="control-form__summary-row"><span>Size</span><strong id="selectedSizeValue">-</strong></div>
+                <div class="control-form__summary-row"><span>Gravity</span><strong id="selectedGravityValue">-</strong></div>
+              </div>
+
+              <label for="selectedSizeInput">Size</label>
+              <input id="selectedSizeInput" name="size" type="number" min="0" step="0.1" placeholder="20" />
+
+              <div class="control-form__actions">
+                <button id="selectedDuplicateBtn" type="button" disabled>Duplicate</button>
+                <button id="selectedDeleteBtn" type="button" disabled>Delete</button>
+              </div>
+
+              <p class="control-form__hint">Select an object on the canvas to open this editor.</p>
+            </fieldset>
+
             <fieldset id="createObjectForm" aria-label="Object Creation Form">
               <legend>Create Object</legend>
 
@@ -63,31 +84,8 @@
                 <option value="sphere">Sphere</option>
               </select>
 
-              <label for="massInput">Mass</label>
-              <input id="massInput" name="mass" type="number" min="0" step="0.1" value="10" placeholder="10" />
-
               <label for="sizeInput">Size</label>
               <input id="sizeInput" name="size" type="number" min="0" step="0.1" value="50" placeholder="50" />
-
-              <label for="createDensityInput">Density</label>
-              <input
-                id="createDensityInput"
-                name="density"
-                type="number"
-                min="0"
-                step="0.1"
-                placeholder="1.0"
-              />
-
-              <label for="createVolumeInput">Volume</label>
-              <input
-                id="createVolumeInput"
-                name="volume"
-                type="number"
-                min="0"
-                step="0.1"
-                placeholder="100"
-              />
 
               <label for="createGravityInput">Gravity</label>
               <input id="createGravityInput" name="gravity" type="number" step="0.1" value="9.8" placeholder="9.8" />
@@ -101,36 +99,26 @@
               <button id="addObjectBtn" type="button">Add Object</button>
             </fieldset>
 
-            <fieldset id="selectedObjectEditor" hidden>
-              <legend>Edit Selected Object</legend>
+            <fieldset id="bulkObjectEditor" aria-label="Edit All Objects">
+              <legend>Edit All Objects</legend>
 
-              <div class="control-form__summary" aria-label="Selected object summary">
-                <div class="control-form__summary-row"><span>Type</span><strong id="selectedTypeValue">None</strong></div>
-                <div class="control-form__summary-row"><span>ID</span><strong id="selectedIdValue">None</strong></div>
-                <div class="control-form__summary-row"><span>Mass</span><strong id="selectedMassValue">-</strong></div>
-                <div class="control-form__summary-row"><span>Size</span><strong id="selectedSizeValue">-</strong></div>
-                <div class="control-form__summary-row"><span>Weight</span><strong id="selectedWeightValue">-</strong></div>
-                <div class="control-form__summary-row"><span>Gravity</span><strong id="selectedGravityValue">-</strong></div>
-                <div class="control-form__summary-row"><span>Density</span><strong id="selectedDensityValue">-</strong></div>
-                <div class="control-form__summary-row"><span>Volume</span><strong id="selectedVolumeValue">-</strong></div>
-              </div>
+              <label for="bulkApplyMode">Apply Mode</label>
+              <select id="bulkApplyMode" name="bulkApplyMode">
+                <option value="replace">Replace Value</option>
+                <option value="add">Add Delta</option>
+                <option value="multiply">Multiply Factor</option>
+              </select>
 
-              <label for="selectedSizeInput">Size</label>
-              <input id="selectedSizeInput" name="size" type="number" min="0" step="0.1" placeholder="20" />
+              <label for="bulkGravityInput">Gravity for All</label>
+              <input id="bulkGravityInput" name="bulkGravity" type="number" step="0.1" placeholder="9.8" />
 
-              <label for="selectedDensityInput">Density</label>
-              <input id="selectedDensityInput" name="density" type="number" min="0" step="0.1" placeholder="1.0" />
+              <label for="bulkSizeInput">Size Scale</label>
+              <input id="bulkSizeInput" name="bulkSize" type="number" step="0.1" placeholder="1.0" />
 
-              <label for="selectedVolumeInput">Volume</label>
-              <input id="selectedVolumeInput" name="volume" type="number" min="0" step="0.1" placeholder="100" />
-
-              <div class="control-form__actions">
-                <button id="selectedDuplicateBtn" type="button" disabled>Duplicate</button>
-                <button id="selectedDeleteBtn" type="button" disabled>Delete</button>
-              </div>
-
-              <p class="control-form__hint">Select an object on the canvas to open this editor.</p>
+              <button id="bulkApplyBtn" type="button">Apply To All Objects</button>
+              <p class="control-form__hint">Choose a mode, enter the values you want to apply, and confirm the bulk edit.</p>
             </fieldset>
+
           </form>
         </aside>
       </section>
